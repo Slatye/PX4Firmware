@@ -69,6 +69,8 @@
 #include "stm32.h"
 #include "stm32_gpio.h"
 #include "stm32_tim.h"
+#include <systemlib/err.h>
+//#include <drivers/device/device.h>
 
 #ifdef HRT_TIMER
 
@@ -391,7 +393,108 @@ static void	hrt_ppm_decode(uint32_t status);
 # define CCER_PPM	0
 #endif /* HRT_PPM_CHANNEL */
 
-/**
+
+#ifdef HRT_PWM_CHANNEL
+/* 
+ * If the timer hardware doesn't support GTIM_CCER_CCxNP, then we will work around it.
+ *
+ * Note that we assume that M3 means STM32F1 (since we don't really care about the F2).
+ */
+
+# ifdef CONFIG_ARCH_CORTEXM3
+#  undef GTIM_CCER_CC1NP
+#  undef GTIM_CCER_CC2NP
+#  undef GTIM_CCER_CC3NP
+#  undef GTIM_CCER_CC4NP
+#  define GTIM_CCER_CC1NP 0
+#  define GTIM_CCER_CC2NP 0
+#  define GTIM_CCER_CC3NP 0
+#  define GTIM_CCER_CC4NP 0
+# endif
+
+# if HRT_PWM_CHANNEL == 1
+#  define rCCR_PWM	        rCCR1			/* capture register for PPM */
+#  define DIER_PWM	        GTIM_DIER_CC1IE		/* capture interrupt (non-DMA mode) */
+#  define SR_INT_PWM	    GTIM_SR_CC1IF		/* capture interrupt (non-DMA mode) */
+#  define SR_OVF_PWM	    GTIM_SR_CC1OF		/* capture overflow (non-DMA mode) */
+#  define CCMR1_PWM	        1			/* not on TI1/TI2 */
+#  define CCMR2_PWM	        0			/* on TI3, not on TI4 */
+#  define CCER_PWM	        (GTIM_CCER_CC1E | GTIM_CCER_CC1P | GTIM_CCER_CC1NP) /* CC1, both edges */
+#  define CCER_PWM_POSEDGE  0
+#  define CCER_PWM_NEGEDGE  (GTIM_CCER_CC1P)
+#  define CCER_PWM_EDGE     (GTIM_CCER_CC1P | GTIM_CCER_CC1NP)
+# elif HRT_PWM_CHANNEL == 2
+#  define rCCR_PWM	        rCCR2			/* capture register for PPM */
+#  define DIER_PWM	        GTIM_DIER_CC2IE		/* capture interrupt (non-DMA mode) */
+#  define SR_INT_PWM	    GTIM_SR_CC2IF		/* capture interrupt (non-DMA mode) */
+#  define SR_OVF_PWM	    GTIM_SR_CC2OF		/* capture overflow (non-DMA mode) */
+#  define CCMR1_PWM	        2			/* not on TI1/TI2 */
+#  define CCMR2_PWM	        0			/* on TI3, not on TI4 */
+#  define CCER_PWM	        (GTIM_CCER_CC2E | GTIM_CCER_CC2P | GTIM_CCER_CC2NP) /* CC2, both edges */
+#  define CCER_PWM_POSEDGE  0
+#  define CCER_PWM_NEGEDGE  (GTIM_CCER_CC2P)
+#  define CCER_PWM_EDGE     (GTIM_CCER_CC2P | GTIM_CCER_CC2NP)
+# elif HRT_PWM_CHANNEL == 3
+#  define rCCR_PWM	        rCCR3			/* capture register for PPM */
+#  define DIER_PWM	        GTIM_DIER_CC3IE		/* capture interrupt (non-DMA mode) */
+#  define SR_INT_PWM	    GTIM_SR_CC3IF		/* capture interrupt (non-DMA mode) */
+#  define SR_OVF_PWM	    GTIM_SR_CC3OF		/* capture overflow (non-DMA mode) */
+#  define CCMR1_PWM	        0			/* not on TI1/TI2 */
+#  define CCMR2_PWM	        1			/* on TI3, not on TI4 */
+#  define CCER_PWM	        (GTIM_CCER_CC3E | GTIM_CCER_CC3P | GTIM_CCER_CC3NP) /* CC3, both edges */
+#  define CCER_PWM_POSEDGE  0
+#  define CCER_PWM_NEGEDGE  (GTIM_CCER_CC3P)
+#  define CCER_PWM_EDGE     (GTIM_CCER_CC3P | GTIM_CCER_CC3NP)
+# elif HRT_WWM_CHANNEL == 4
+#  define rCCR_PWM	        rCCR4			/* capture register for PPM */
+#  define DIER_PWM	        GTIM_DIER_CC4IE		/* capture interrupt (non-DMA mode) */
+#  define SR_INT_PWM	    GTIM_SR_CC4IF		/* capture interrupt (non-DMA mode) */
+#  define SR_OVF_PWM	    GTIM_SR_CC4OF		/* capture overflow (non-DMA mode) */
+#  define CCMR1_PWM	        0			/* not on TI1/TI2 */
+#  define CCMR2_PWM	        2			/* on TI3, not on TI4 */
+#  define CCER_PWM	        (GTIM_CCER_CC4E | GTIM_CCER_CC4P | GTIM_CCER_CC4NP) /* CC4, both edges */
+#  define CCER_PWM_POSEDGE  0
+#  define CCER_PWM_NEGEDGE  (GTIM_CCER_CC4P)
+#  define CCER_PWM_EDGE     (GTIM_CCER_CC4P | GTIM_CCER_CC4NP)
+# else
+#  error HRT_PWM_CHANNEL must be a value between 1 and 4
+# endif
+
+#define PWM_MAX_PERIOD 5000
+#define PWM_MIN_PERIOD 0
+
+__EXPORT uint16_t pwm_buffer_width = 0;
+__EXPORT uint16_t pwm_buffer_period = 0;
+__EXPORT uint64_t pwm_last_valid_decode = 0;
+
+/* PWM decoder state machine */
+struct {
+	uint16_t	last_posedge;	/* last positive edge time */
+	uint16_t	last_negedge;	/* last negative edge */
+	uint16_t	width; // Width of the pulse (need to store until we get the period as well)
+    uint64_t    error_count;
+} pwm;
+
+static void	hrt_pwm_decode(uint32_t status, uint8_t edge);
+
+#include <uORB/uORB.h>
+#include <uORB/topics/pwm_input.h>
+#include <uORB/topics/subsystem_info.h>
+orb_advert_t _pwm_pub = -1;
+
+
+#else
+/* disable the PPM configuration */
+# define rCCR_PWM	0
+# define DIER_PWM	0
+# define SR_INT_PWM	0
+# define SR_OVF_PWM	0
+# define CCMR1_PWM	0
+# define CCMR2_PWM	0
+# define CCER_PWM	0
+#endif /* HRT_PWM_CHANNEL */
+
+/*
  * Initialise the timer we are going to use.
  *
  * We expect that we'll own one of the reduced-function STM32 general
@@ -577,7 +680,51 @@ error:
 }
 #endif /* HRT_PPM_CHANNEL */
 
-/**
+#ifdef HRT_PWM_CHANNEL
+/*
+ * Handle the PWM decoder state machine.
+ */
+static void
+hrt_pwm_decode(uint32_t status, uint8_t edge)
+{
+    uint16_t count = rCCR_PWM;
+	uint16_t period;
+
+	/* if we missed an edge, we have to give up */
+	if (status & SR_OVF_PWM) {
+        pwm.error_count++;
+		return;
+    }
+
+    if (edge == 1) {
+        period = count - pwm.last_posedge;
+        pwm.last_posedge = count;
+        // Transmit data.
+        pwm_buffer_width = pwm.width;
+        pwm_buffer_period = period;
+        struct pwm_input_s pwm_in_report;
+        pwm_in_report.timestamp = hrt_absolute_time();
+        pwm_in_report.error_count = pwm.error_count;
+        pwm_in_report.period = period;
+        pwm_in_report.pulse_width = pwm.width;
+        pwm_last_valid_decode = pwm_in_report.timestamp;
+
+        if (_pwm_pub != -1) {
+            /* publish for subscribers */
+            orb_publish(ORB_ID(pwm_input), _pwm_pub, &pwm_in_report);
+        }
+    } else {
+        pwm.width = count - pwm.last_negedge;
+        pwm.last_negedge = count;
+    }
+    
+	return;
+
+}
+#endif /* HRT_PWM_CHANNEL */
+
+
+/*
  * Handle the compare interupt by calling the callout dispatcher
  * and then re-scheduling the next deadline.
  */
@@ -606,7 +753,18 @@ hrt_tim_isr(int irq, void *context)
 
 		hrt_ppm_decode(status);
 	}
-
+#endif
+    
+#ifdef HRT_PWM_CHANNEL
+    if (status & (SR_INT_PWM | SR_OVF_PWM)) {
+        if ((rCCER & CCER_PWM_EDGE) == CCER_PWM_POSEDGE) {
+            rCCER = (rCCER & ~CCER_PWM_EDGE) | CCER_PWM_NEGEDGE;
+            hrt_pwm_decode(status,1);
+        } else {
+            rCCER = (rCCER & ~CCER_PWM_EDGE) | CCER_PWM_POSEDGE;
+            hrt_pwm_decode(status,0);
+        }
+    }
 #endif
 
 	/* was this a timer tick? */
@@ -739,6 +897,42 @@ hrt_init(void)
 #ifdef HRT_PPM_CHANNEL
 	/* configure the PPM input pin */
 	stm32_configgpio(GPIO_PPM_IN);
+#endif
+    
+#ifdef HRT_PWM_CHANNEL
+    stm32_configgpio(GPIO_PWM_IN);
+    
+//    CDev("PWMin", "/dev/pwmin", 0); // No IRQ for PWM input.
+    // do base class init, which will create device node, etc
+//	int ret = CDev::init();
+
+/*	if (ret != OK) {
+		debug("cdev init failed");
+		goto out;
+	}*/
+    
+    	/* get a publish handle on the airspeed topic */
+	struct pwm_input_s zero_report;
+	memset(&zero_report, 0, sizeof(zero_report));
+	_pwm_pub = orb_advertise(ORB_ID(pwm_input), &zero_report);
+
+	if (_pwm_pub < 0) {
+		warnx("failed to create PWM input object. Did you start uOrb?");
+    }
+    
+    struct subsystem_info_s info = {
+		true,
+		true,
+		true,
+		SUBSYSTEM_TYPE_AERODYNAMIC
+	};
+	static orb_advert_t pub = -1;
+
+	if (pub > 0) {
+		orb_publish(ORB_ID(subsystem_info), pub, &info);
+	} else {
+		pub = orb_advertise(ORB_ID(subsystem_info), &info);
+	}
 #endif
 }
 

@@ -1,9 +1,6 @@
 /****************************************************************************
  *
- *   Copyright (C) 2012 PX4 Development Team. All rights reserved.
- *   Author: Lorenz Meier <lm@inf.ethz.ch>
- *           Thomas Gubler <thomasgubler@student.ethz.ch>
- *           Julian Oes <joes@student.ethz.ch>
+ *   Copyright (C) 2012-2013 PX4 Development Team. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,56 +32,30 @@
  ****************************************************************************/
 
 /**
- * @file subsystem_info.h
- * Definition of the subsystem info topic.
+ * @file pwm_input.h
  *
- * @author Lorenz Meier <lm@inf.ethz.ch>
- * @author Thomas Gubler <thomasgubler@student.ethz.ch>
- * @author Julian Oes <joes@student.ethz.ch>
+ * Definition of PWM input topic
  */
 
-#ifndef TOPIC_SUBSYSTEM_INFO_H_
-#define TOPIC_SUBSYSTEM_INFO_H_
+#ifndef TOPIC_PWM_INPUT_H_
+#define TOPIC_PWM_INPUT_H_
 
-#include <stdint.h>
-#include <stdbool.h>
 #include "../uORB.h"
-
-enum SUBSYSTEM_TYPE
-{
-	SUBSYSTEM_TYPE_GYRO = 1,
-	SUBSYSTEM_TYPE_ACC = 2,
-	SUBSYSTEM_TYPE_MAG = 4,
-	SUBSYSTEM_TYPE_ABSPRESSURE = 8,
-	SUBSYSTEM_TYPE_DIFFPRESSURE = 16,
-	SUBSYSTEM_TYPE_GPS = 32,
-	SUBSYSTEM_TYPE_OPTICALFLOW = 64,
-	SUBSYSTEM_TYPE_CVPOSITION = 128,
-	SUBSYSTEM_TYPE_LASERPOSITION = 256,
-	SUBSYSTEM_TYPE_EXTERNALGROUNDTRUTH = 512,
-	SUBSYSTEM_TYPE_ANGULARRATECONTROL = 1024,
-	SUBSYSTEM_TYPE_ATTITUDESTABILIZATION = 2048,
-	SUBSYSTEM_TYPE_YAWPOSITION = 4096,
-	SUBSYSTEM_TYPE_ALTITUDECONTROL = 16384,
-	SUBSYSTEM_TYPE_POSITIONCONTROL = 32768,
-	SUBSYSTEM_TYPE_MOTORCONTROL = 65536,
-	SUBSYSTEM_TYPE_RANGEFINDER = 131072,
-    SUBSYSTEM_TYPE_AERODYNAMIC = 262144
-};
+#include <stdint.h>
 
 /**
  * @addtogroup topics
+ * @{
  */
 
 /**
- * State of individual sub systems
+ * Differential pressure.
  */
-struct subsystem_info_s {
-	bool present;
-	bool enabled;
-	bool ok;
-
-	enum SUBSYSTEM_TYPE subsystem_type;
+struct pwm_input_s {
+	uint64_t	timestamp;		/**< microseconds since system boot, needed to integrate */
+	uint64_t	error_count;
+	uint16_t    pulse_width;	/**< Pulse width, timer counts */
+    uint16_t    period;         /**< Period, timer counts */
 };
 
 /**
@@ -92,7 +63,6 @@ struct subsystem_info_s {
  */
 
 /* register this as object request broker structure */
-ORB_DECLARE(subsystem_info);
+ORB_DECLARE(pwm_input);
 
-#endif /* TOPIC_SUBSYSTEM_INFO_H_ */
-
+#endif
