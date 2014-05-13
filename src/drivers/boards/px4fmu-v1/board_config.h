@@ -180,8 +180,9 @@ __BEGIN_DECLS
  */
 #define HRT_TIMER		1	/* use timer1 for the HRT */
 #define HRT_TIMER_CHANNEL	1	/* use capture/compare channel */
-#define HRT_PPM_CHANNEL		3	/* use capture/compare channel 3 */
-#define GPIO_PPM_IN		(GPIO_ALT|GPIO_AF1|GPIO_PULLUP|GPIO_PORTA|GPIO_PIN10)
+// Evan's change: use this as a PWM channel instead of a PPM channel.
+#define HRT_PWM_CHANNEL		3	/* use capture/compare channel 3 */
+#define GPIO_PWM_IN		(GPIO_ALT|GPIO_AF1|GPIO_SPEED_50MHz|GPIO_PULLUP|GPIO_PORTA|GPIO_PIN10)
 
 /****************************************************************************************************
  * Public Types

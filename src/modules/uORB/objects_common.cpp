@@ -196,3 +196,6 @@ ORB_DEFINE(esc_status, struct esc_status_s);
 
 #include "topics/encoders.h"
 ORB_DEFINE(encoders, struct encoders_s);
+
+#include "topics/pwm_input.h"
+ORB_DEFINE(pwm_input, struct pwm_input_s);
