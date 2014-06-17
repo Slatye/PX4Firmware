@@ -32,13 +32,17 @@
  ****************************************************************************/
 
 /**
- * @file pwm_input.h
+ * @file differential_pressure.h
  *
- * Definition of PWM input topic
+ * Definition of differential pressure raw data topic.
+ * This just sends out the raw sensor data. Implemented because I don't like the assumption
+ * that the sensor is always a +/- 1PSI sensor, and making that adjustable in the code isn't easy.
+ * For my purposes (using APM on PX4) it makes more sense to output the raw data and have some
+ * other code (on the APM side) that actually knows what the sensor type is do the conversion.
  */
 
-#ifndef TOPIC_PWM_INPUT_H_
-#define TOPIC_PWM_INPUT_H_
+#ifndef TOPIC_DIFFERENTIAL_PRESSURE_RAW_DATA_H_
+#define TOPIC_DIFFERENTIAL_PRESSURE_RAW_DATA_H_
 
 #include "../uORB.h"
 #include <stdint.h>
@@ -51,11 +55,9 @@
 /**
  * Differential pressure.
  */
-struct pwm_input_s {
+struct differential_pressure_raw_data_s {
 	uint64_t	timestamp;		/**< microseconds since system boot, needed to integrate */
-	uint64_t	error_count;
-	uint32_t    pulse_width;	/**< Pulse width, timer counts */
-    uint32_t    period;         /**< Period, timer counts */
+    uint8_t     data[4];             // Raw sensor data, 4 bytes.
 };
 
 /**
@@ -63,6 +65,6 @@ struct pwm_input_s {
  */
 
 /* register this as object request broker structure */
-ORB_DECLARE(pwm_input);
+ORB_DECLARE(differential_pressure_raw_data);
 
 #endif

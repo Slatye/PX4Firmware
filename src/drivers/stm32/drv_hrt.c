@@ -680,50 +680,6 @@ error:
 }
 #endif /* HRT_PPM_CHANNEL */
 
-#ifdef HRT_PWM_CHANNEL
-/*
- * Handle the PWM decoder state machine.
- */
-static void
-hrt_pwm_decode(uint32_t status, uint8_t edge)
-{
-    uint16_t count = rCCR_PWM;
-	uint16_t period;
-
-	/* if we missed an edge, we have to give up */
-	if (status & SR_OVF_PWM) {
-        pwm.error_count++;
-		return;
-    }
-
-    if (edge == 1) {
-        period = count - pwm.last_posedge;
-        pwm.last_posedge = count;
-        // Transmit data.
-        pwm_buffer_width = pwm.width;
-        pwm_buffer_period = period;
-        struct pwm_input_s pwm_in_report;
-        pwm_in_report.timestamp = hrt_absolute_time();
-        pwm_in_report.error_count = pwm.error_count;
-        pwm_in_report.period = period;
-        pwm_in_report.pulse_width = pwm.width;
-        pwm_last_valid_decode = pwm_in_report.timestamp;
-
-        if (_pwm_pub != -1) {
-            /* publish for subscribers */
-            orb_publish(ORB_ID(pwm_input), _pwm_pub, &pwm_in_report);
-        }
-    } else {
-        pwm.width = count - pwm.last_negedge;
-        pwm.last_negedge = count;
-    }
-    
-	return;
-
-}
-#endif /* HRT_PWM_CHANNEL */
-
-
 /*
  * Handle the compare interupt by calling the callout dispatcher
  * and then re-scheduling the next deadline.
@@ -743,28 +699,14 @@ hrt_tim_isr(int irq, void *context)
 	rSR = ~status;
 
 #ifdef HRT_PPM_CHANNEL
-
 	/* was this a PPM edge? */
 	if (status & (SR_INT_PPM | SR_OVF_PPM)) {
 		/* if required, flip edge sensitivity */
 # ifdef PPM_EDGE_FLIP
 		rCCER ^= CCER_PPM_FLIP;
 # endif
-
 		hrt_ppm_decode(status);
 	}
-#endif
-    
-#ifdef HRT_PWM_CHANNEL
-    if (status & (SR_INT_PWM | SR_OVF_PWM)) {
-        if ((rCCER & CCER_PWM_EDGE) == CCER_PWM_POSEDGE) {
-            rCCER = (rCCER & ~CCER_PWM_EDGE) | CCER_PWM_NEGEDGE;
-            hrt_pwm_decode(status,1);
-        } else {
-            rCCER = (rCCER & ~CCER_PWM_EDGE) | CCER_PWM_POSEDGE;
-            hrt_pwm_decode(status,0);
-        }
-    }
 #endif
 
 	/* was this a timer tick? */
@@ -897,42 +839,6 @@ hrt_init(void)
 #ifdef HRT_PPM_CHANNEL
 	/* configure the PPM input pin */
 	stm32_configgpio(GPIO_PPM_IN);
-#endif
-    
-#ifdef HRT_PWM_CHANNEL
-    stm32_configgpio(GPIO_PWM_IN);
-    
-//    CDev("PWMin", "/dev/pwmin", 0); // No IRQ for PWM input.
-    // do base class init, which will create device node, etc
-//	int ret = CDev::init();
-
-/*	if (ret != OK) {
-		debug("cdev init failed");
-		goto out;
-	}*/
-    
-    	/* get a publish handle on the airspeed topic */
-	struct pwm_input_s zero_report;
-	memset(&zero_report, 0, sizeof(zero_report));
-	_pwm_pub = orb_advertise(ORB_ID(pwm_input), &zero_report);
-
-	if (_pwm_pub < 0) {
-		warnx("failed to create PWM input object. Did you start uOrb?");
-    }
-    
-    struct subsystem_info_s info = {
-		true,
-		true,
-		true,
-		SUBSYSTEM_TYPE_AERODYNAMIC
-	};
-	static orb_advert_t pub = -1;
-
-	if (pub > 0) {
-		orb_publish(ORB_ID(subsystem_info), pub, &info);
-	} else {
-		pub = orb_advertise(ORB_ID(subsystem_info), &info);
-	}
 #endif
 }
 

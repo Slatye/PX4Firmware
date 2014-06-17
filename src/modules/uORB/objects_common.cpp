@@ -163,6 +163,10 @@ ORB_DEFINE(airspeed, struct airspeed_s);
 #include "topics/differential_pressure.h"
 ORB_DEFINE(differential_pressure, struct differential_pressure_s);
 
+
+#include "topics/differential_pressure_raw_data.h"
+ORB_DEFINE(differential_pressure_raw_data, struct differential_pressure_raw_data_s);
+
 #include "topics/subsystem_info.h"
 ORB_DEFINE(subsystem_info, struct subsystem_info_s);
 
@@ -197,5 +201,3 @@ ORB_DEFINE(esc_status, struct esc_status_s);
 #include "topics/encoders.h"
 ORB_DEFINE(encoders, struct encoders_s);
 
-#include "topics/pwm_input.h"
-ORB_DEFINE(pwm_input, struct pwm_input_s);

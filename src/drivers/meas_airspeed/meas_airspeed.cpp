@@ -213,8 +213,8 @@ MEASAirspeed::collect()
 	float diff_press_PSI = -((dp_raw - 0.1f*16383) * (P_max-P_min)/(0.8f*16383) + P_min);
 	float diff_press_pa_raw = diff_press_PSI * PSI_to_Pa;
 
-        // correct for 5V rail voltage if possible
-        voltage_correction(diff_press_pa_raw, temperature);
+    // correct for 5V rail voltage if possible
+    voltage_correction(diff_press_pa_raw, temperature);
 
 	float diff_press_pa = fabsf(diff_press_pa_raw - _diff_pres_offset);
 	
