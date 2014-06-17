@@ -68,14 +68,40 @@
 #include <systemlib/board_serial.h>
 #include <drivers/drv_mixer.h>
 #include <drivers/drv_rc_input.h>
+#include <drivers/drv_pwmin.h>
 
 #include <uORB/topics/actuator_controls.h>
 #include <uORB/topics/actuator_outputs.h>
 #include <uORB/topics/actuator_armed.h>
-
+#include <uORB/topics/pwm_input.h>
 
 #ifdef HRT_PPM_CHANNEL
 # include <systemlib/ppm_decode.h>
+#endif
+
+#ifdef PWMIN_TIMER
+__EXPORT extern uint16_t pwmin_data[3];
+#define PWMIN_TIMER_BASE STM32_TIM8_BASE
+#define PWMIN_REG(_reg)	(*(volatile uint32_t *)(PWMIN_TIMER_BASE + _reg))
+
+#define PWMIN_rCR1     	PWMIN_REG(STM32_GTIM_CR1_OFFSET)
+#define PWMIN_rCR2     	PWMIN_REG(STM32_GTIM_CR2_OFFSET)
+#define PWMIN_rSMCR    	PWMIN_REG(STM32_GTIM_SMCR_OFFSET)
+#define PWMIN_rDIER    	PWMIN_REG(STM32_GTIM_DIER_OFFSET)
+#define PWMIN_rSR      	PWMIN_REG(STM32_GTIM_SR_OFFSET)
+#define PWMIN_rEGR     	PWMIN_REG(STM32_GTIM_EGR_OFFSET)
+#define PWMIN_rCCMR1   	PWMIN_REG(STM32_GTIM_CCMR1_OFFSET)
+#define PWMIN_rCCMR2   	PWMIN_REG(STM32_GTIM_CCMR2_OFFSET)
+#define PWMIN_rCCER    	PWMIN_REG(STM32_GTIM_CCER_OFFSET)
+#define PWMIN_rCNT     	PWMIN_REG(STM32_GTIM_CNT_OFFSET)
+#define PWMIN_rPSC     	PWMIN_REG(STM32_GTIM_PSC_OFFSET)
+#define PWMIN_rARR     	PWMIN_REG(STM32_GTIM_ARR_OFFSET)
+#define PWMIN_rCCR1    	PWMIN_REG(STM32_GTIM_CCR1_OFFSET)
+#define PWMIN_rCCR2    	PWMIN_REG(STM32_GTIM_CCR2_OFFSET)
+#define PWMIN_rCCR3    	PWMIN_REG(STM32_GTIM_CCR3_OFFSET)
+#define PWMIN_rCCR4    	PWMIN_REG(STM32_GTIM_CCR4_OFFSET)
+#define PWMIN_rDCR     	PWMIN_REG(STM32_GTIM_DCR_OFFSET)
+#define PWMIN_rDMAR    	PWMIN_REG(STM32_GTIM_DMAR_OFFSET)
 #endif
 
 /*
@@ -176,7 +202,7 @@ const PX4FMU::GPIOConfig PX4FMU::_gpio_tab[] = {
 	{GPIO_GPIO0_INPUT, GPIO_GPIO0_OUTPUT, 0},
 	{GPIO_GPIO1_INPUT, GPIO_GPIO1_OUTPUT, 0},
 	{GPIO_GPIO2_INPUT, GPIO_GPIO2_OUTPUT, GPIO_USART2_CTS_1},
-	{GPIO_GPIO3_INPUT, GPIO_GPIO3_OUTPUT, GPIO_USART2_RTS_1},
+	{GPIO_GPIO3_INPUT, GPIO_GPIO3_OUTPUT, GPIO_PWM_IN},
 	{GPIO_GPIO4_INPUT, GPIO_GPIO4_OUTPUT, GPIO_USART2_TX_1},
 	{GPIO_GPIO5_INPUT, GPIO_GPIO5_OUTPUT, GPIO_USART2_RX_1},
 	{GPIO_GPIO6_INPUT, GPIO_GPIO6_OUTPUT, GPIO_CAN2_TX_2},
@@ -484,6 +510,19 @@ PX4FMU::task_main()
 	rc_in.input_source = RC_INPUT_SOURCE_PX4FMU_PPM;
 #endif
 
+/*#ifdef PWMIN_TIMER
+    struct pwm_input_s pwmin;
+    orb_advert_t pwmin_ad;
+    
+    pwm_input_main(0, NULL);
+    
+    memset(&pwmin,0,sizeof(pwmin));
+    pwmin.timestamp = 12345;
+    pwmin.pulse_width = 0;
+    pwmin.period = 9;
+    pwmin_ad = orb_advertise(ORB_ID(pwm_input), &pwmin);
+#endif*/
+
 	/* initialize PWM limit lib */
 	pwm_limit_init(&_pwm_limit);
 
@@ -658,7 +697,11 @@ PX4FMU::task_main()
 		}
 
 #endif
-
+  /*      #ifdef PWMIN_TIMER
+            pwmin.pulse_width = pwmin_data[2]; // Count is indeed counting.
+            orb_publish(ORB_ID(pwm_input), pwmin_ad, &pwmin);
+            pwmin.period++;
+        #endif*/
 	}
 
 	::close(_t_actuators);
@@ -1368,6 +1411,7 @@ enum PortMode {
 	PORT_FULL_GPIO,
 	PORT_FULL_SERIAL,
 	PORT_FULL_PWM,
+    PORT_SERIAL_AND_PWMIN,
 	PORT_GPIO_AND_SERIAL,
 	PORT_PWM_AND_SERIAL,
 	PORT_PWM_AND_GPIO,
@@ -1408,8 +1452,14 @@ fmu_new_mode(PortMode new_mode)
 
 	case PORT_FULL_SERIAL:
 		/* set all multi-GPIOs to serial mode */
+    // This doesn't work any more because I've changed AF1 for GPIO3/GPIO_MULTI_2 (yes, numbers are correct) to be GPIO_PWM_IN instead of GPIO_USART2_RTS. Probably should actually make that AF2...
 		gpio_bits = GPIO_MULTI_1 | GPIO_MULTI_2 | GPIO_MULTI_3 | GPIO_MULTI_4;
 		break;
+    
+    case PORT_SERIAL_AND_PWMIN:
+        // Use serial TX/RX/CTS, but leave RTS alone so it can be used for PWM input.
+        gpio_bits = GPIO_MULTI_1 | GPIO_MULTI_2 | GPIO_MULTI_3 | GPIO_MULTI_4;
+        break;
 
 	case PORT_GPIO_AND_SERIAL:
 		/* set RX/TX multi-GPIOs to serial mode */
@@ -1434,8 +1484,9 @@ fmu_new_mode(PortMode new_mode)
 	}
 
 	/* adjust GPIO config for serial mode(s) */
-	if (gpio_bits != 0)
+	if (gpio_bits != 0) {
 		g_fmu->ioctl(0, GPIO_SET_ALT_1, gpio_bits);
+    }
 
 	/* (re)set the PWM output mode */
 	g_fmu->set_mode(servo_mode);
@@ -1671,6 +1722,9 @@ fmu_main(int argc, char *argv[])
 
 	} else if (!strcmp(verb, "mode_serial")) {
 		new_mode = PORT_FULL_SERIAL;
+        
+    } else if (!strcmp(verb, "mode_serial_pwmin")) {
+        new_mode = PORT_SERIAL_AND_PWMIN;
 
 	} else if (!strcmp(verb, "mode_gpio_serial")) {
 		new_mode = PORT_GPIO_AND_SERIAL;

@@ -31,9 +31,9 @@ then
 fi
 
 # Start airspeed sensors
-if meas_airspeed start
+if hsc_airspeed start
 then
-	echo "[init] Using MEAS airspeed sensor"
+	echo "[init] Using HSC airspeed sensor"
 else
 	if ets_airspeed start
 	then

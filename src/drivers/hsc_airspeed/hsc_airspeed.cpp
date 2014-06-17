@@ -84,11 +84,13 @@
 #include <drivers/drv_hrt.h>
 
 #include <uORB/uORB.h>
-#include <uORB/topics/differential_pressure.h>
+#include <uORB/topics/differential_pressure_raw_data.h>
 #include <uORB/topics/subsystem_info.h>
 #include <uORB/topics/system_power.h>
 
 #include <drivers/airspeed/airspeed.h>
+
+#define PATH_HSCD "/dev/hscd"
 
 /* I2C bus address is 1010001x */
 #define I2C_ADDRESS_HSC	0x28	//0x51 /* 7-bit address. */
@@ -102,7 +104,7 @@
 class HSCAirspeed : public Airspeed
 {
 public:
-	HSCAirspeed(int bus, int address = I2C_ADDRESS_HSC);
+	HSCAirspeed(int bus, int address = I2C_ADDRESS_HSC, const char *path = PATH_HSCD);
 
 protected:
 
@@ -117,9 +119,6 @@ protected:
 	// no correction for rail voltage.
     // Honeywell claims that within the specified operating range
     // (4.75 - 5.25V) the output is stable.
-
-	int _t_system_power;
-	struct system_power_s system_power;
 };
 
 /*
@@ -127,11 +126,9 @@ protected:
  */
 extern "C" __EXPORT int hsc_airspeed_main(int argc, char *argv[]);
 
-HSCAirspeed::HSCAirspeed(int bus, int address) : Airspeed(bus, address,
-							    CONVERSION_INTERVAL),
-						   _t_system_power(-1)
+HSCAirspeed::HSCAirspeed(int bus, int address, const char * path) : 
+    Airspeed(bus, address, CONVERSION_INTERVAL, path)
 {
-	memset(&system_power, 0, sizeof(system_power));
 }
 
 int
@@ -162,8 +159,10 @@ HSCAirspeed::collect()
 
 
 	perf_begin(_sample_perf);
+    
+    struct differential_pressure_raw_data_s report;
 
-	ret = transfer(nullptr, 0, &val[0], 4);
+	ret = transfer(nullptr, 0, report.data, 4);
 
 	if (ret < 0) {
                 perf_count(_comms_errors);
@@ -171,6 +170,8 @@ HSCAirspeed::collect()
 		return ret;
 	}
 
+    
+    
 	uint8_t status = val[0] & 0xC0;
 
 	if (status == 2) {
@@ -184,81 +185,13 @@ HSCAirspeed::collect()
                 perf_end(_sample_perf);
 		return ret;                
 	}
-
-	//uint16_t diff_pres_pa = (val[1]) | ((val[0] & ~(0xC0)) << 8);
-	uint16_t temp = (val[3] & 0xE0) << 8 | val[2];
-
-	// XXX leaving this in until new calculation method has been cross-checked
-	//diff_pres_pa = abs(diff_pres_pa - (16384 / 2.0f));
-	//diff_pres_pa -= _diff_pres_offset;
-	int16_t dp_raw = 0, dT_raw = 0;
-	dp_raw = (val[0] << 8) + val[1];
-	dp_raw = 0x3FFF & dp_raw; //mask the used bits
-	dT_raw = (val[2] << 8) + val[3];
-	dT_raw = (0xFFE0 & dT_raw) >> 5;
-	float temperature = ((200.0f * dT_raw) / 2047) - 50;
-
-	// XXX we may want to smooth out the readings to remove noise.
-
-	// Calculate differential pressure. As its centered around 8000
-	// and can go positive or negative
-	const float P_min = -1.0f;
-	const float P_max = 1.0f;
-	const float InAq_to_Pa = 248.84f;
-	/*
-	  this equation is an inversion of the equation in the
-	  pressure transfer function figure on page 4 of the datasheet
-
-	  We negate the result so that positive differential pressures
-	  are generated when the bottom port is used as the static
-	  port on the pitot and top port is used as the dynamic port
-	 */
-	float diff_press_InAq = -((dp_raw - 0.1f*16383) * (P_max-P_min)/(0.8f*16383) + P_min);
-	float diff_press_pa_raw = diff_press_InAq * InAq_to_Pa;
-
-	float diff_press_pa = fabsf(diff_press_pa_raw - _diff_pres_offset);
-	
-	/*
-	  note that we return both the absolute value with offset
-	  applied and a raw value without the offset applied. This
-	  makes it possible for higher level code to detect if the
-	  user has the tubes connected backwards, and also makes it
-	  possible to correctly use offsets calculated by a higher
-	  level airspeed driver.
-
-	  With the above calculation the MS4525 sensor will produce a
-	  positive number when the top port is used as a dynamic port
-	  and bottom port is used as the static port
-
-	  Also note that the _diff_pres_offset is applied before the
-	  fabsf() not afterwards. It needs to be done this way to
-	  prevent a bias at low speeds, but this also means that when
-	  setting a offset you must set it based on the raw value, not
-	  the offset value
-	 */
-	
-	struct differential_pressure_s report;
-
-	// Track maximum differential pressure measured (so we can work out top speed).
-	if (diff_press_pa > _max_differential_pressure_pa) {
-	    _max_differential_pressure_pa = diff_press_pa;
-	}
-
-	report.timestamp = hrt_absolute_time();
-    report.error_count = perf_event_count(_comms_errors);
-	report.temperature = temperature;
-	report.differential_pressure_pa = diff_press_pa;
-	report.differential_pressure_raw_pa = diff_press_pa_raw;
-	report.voltage = 0;
-	report.max_differential_pressure_pa = _max_differential_pressure_pa;
+    
 
 	/* announce the airspeed if needed, just publish else */
-	orb_publish(ORB_ID(differential_pressure), _airspeed_pub, &report);
-
-	new_report(report);
+	orb_publish(ORB_ID(differential_pressure_raw_data), _airspeed_pub, &report);
 
 	/* notify anyone waiting for data */
-	poll_notify(POLLIN);
+	//poll_notify(POLLIN);
 
 	ret = OK;
 

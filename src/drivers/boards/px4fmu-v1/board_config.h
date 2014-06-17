@@ -179,15 +179,19 @@ __BEGIN_DECLS
 /* High-resolution timer
  */
 #define HRT_TIMER		1	/* use timer1 for the HRT */
-#define HRT_TIMER_CHANNEL	2	/* use capture/compare channel */
+#define HRT_TIMER_CHANNEL	1	/* use capture/compare channel */
 #define HRT_PPM_CHANNEL     3
 #define GPIO_PPM_IN         (GPIO_ALT|GPIO_AF1|GPIO_SPEED_50MHz|GPIO_PULLUP|GPIO_PORTA|GPIO_PIN10)
 
 
 // Evan's change: add a PWM input too.
-// This, unfortunately, turns off the I2C port.
-#define HRT_PWM_CHANNEL		1	/* use capture/compare channel 1 */
-#define GPIO_PWM_IN		(GPIO_ALT|GPIO_AF1|GPIO_SPEED_50MHz|GPIO_PULLUP|GPIO_PORTA|GPIO_PIN8)
+// Can only use the advanced control timers (1, 8) and the general purpose timers that have at least two timer registers (2, 3, 4, 5).
+// NuttX uses timers 4 - 6, 9 - 14. This leaves 1, 2, 3, 8 available.
+#define PWMIN_TIMER     2   //
+#define PWMIN_TIMER_CHANNEL 2 // If CH1 is selected, CH2 will also be used (and vice-versa). 
+#define GPIO_PWM_IN		(GPIO_ALT|GPIO_AF1|GPIO_SPEED_50MHz|GPIO_PULLUP|GPIO_PORTA|GPIO_PIN1)
+// Used as ALTernate function, Alternate Function 1 (timer 2 CH2), 50MHz GPIO speed, pullup enabled (weak), port A, pin 1.
+
 
 /****************************************************************************************************
  * Public Types

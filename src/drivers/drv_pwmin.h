@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   Copyright (C) 2012-2013 PX4 Development Team. All rights reserved.
+ *   Copyright (C) 2012 PX4 Development Team. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,38 +31,20 @@
  *
  ****************************************************************************/
 
-/**
- * @file pwm_input.h
- *
- * Definition of PWM input topic
+#pragma once
+
+#include <sys/types.h>
+#include <stdbool.h>
+
+#include <time.h>
+#include <queue.h>
+
+
+__BEGIN_DECLS
+
+/*
+ * Initialise the timer
  */
+__EXPORT extern int    pwm_input_main(int argc, char * argv[]);
 
-#ifndef TOPIC_PWM_INPUT_H_
-#define TOPIC_PWM_INPUT_H_
-
-#include "../uORB.h"
-#include <stdint.h>
-
-/**
- * @addtogroup topics
- * @{
- */
-
-/**
- * Differential pressure.
- */
-struct pwm_input_s {
-	uint64_t	timestamp;		/**< microseconds since system boot, needed to integrate */
-	uint64_t	error_count;
-	uint32_t    pulse_width;	/**< Pulse width, timer counts */
-    uint32_t    period;         /**< Period, timer counts */
-};
-
-/**
- * @}
- */
-
-/* register this as object request broker structure */
-ORB_DECLARE(pwm_input);
-
-#endif
+__END_DECLS

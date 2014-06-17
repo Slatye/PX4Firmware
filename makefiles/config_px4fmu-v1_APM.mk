@@ -34,8 +34,10 @@ MODULES		+= drivers/blinkm
 MODULES		+= drivers/airspeed
 MODULES		+= drivers/ets_airspeed
 MODULES		+= drivers/meas_airspeed
+#MODULES     += drivers/hsc_airspeed
 MODULES		+= drivers/mkblctrl
 #MODULES	+= modules/sensors
+MODULES     += drivers/pwm_input
 
 #
 # System commands
