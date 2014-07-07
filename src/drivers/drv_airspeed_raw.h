@@ -32,15 +32,15 @@
  ****************************************************************************/
 
 /**
- * @file drv_airspeed.h
+ * @file drv_airspeed_raw.h
  *
  * Airspeed driver interface.
  * 
  * @author Simon Wilks
  */
 
-#ifndef _DRV_AIRSPEED_H
-#define _DRV_AIRSPEED_H
+#ifndef _DRV_AIRSPEED_RAW_H
+#define _DRV_AIRSPEED_RAW_H
 
 #include <stdint.h>
 #include <sys/ioctl.h>
@@ -48,7 +48,7 @@
 #include "drv_sensor.h"
 #include "drv_orb_dev.h"
 
-#define AIRSPEED_DEVICE_PATH	"/dev/airspeed"
+#define AIRSPEED_RAW_DEVICE_PATH	"/dev/airspeed_raw"
 
 /*
  * ioctl() definitions
@@ -62,16 +62,5 @@
 
 #define AIRSPEEDIOCSSCALE		__AIRSPEEDIOC(0)
 #define AIRSPEEDIOCGSCALE		__AIRSPEEDIOC(1)
-
-#define AIRSPEEDIOCSPROCDATA        __AIRSPEEDIOC(2)
-
-#define AIRSPEED_PROCESS_DATA 1
-
-
-/** airspeed scaling factors; out = (in * Vscale) + offset */
-struct airspeed_scale {
-	float	offset_pa;
-	float	scale;
-};
 
 #endif /* _DRV_AIRSPEED_H */
