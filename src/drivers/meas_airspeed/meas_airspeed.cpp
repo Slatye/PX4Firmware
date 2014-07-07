@@ -84,6 +84,7 @@
 
 #include <uORB/uORB.h>
 #include <uORB/topics/differential_pressure.h>
+#include <uORB/topics/differential_pressure_raw_data.h>
 #include <uORB/topics/subsystem_info.h>
 #include <uORB/topics/system_power.h>
 
@@ -98,6 +99,9 @@
 
 /* Register address */
 #define ADDR_READ_MR			0x00	/* write to this address to start conversion */
+
+/* Standard scale for MEAS 1PSI sensor */
+#define DIFF_PRES_SCALE_MEAS ((6894.8*2)/(0.8*16383))
 
 /* Measurement rate is 100Hz */
 #define CONVERSION_INTERVAL	(1000000 / 100)	/* microseconds */
@@ -116,6 +120,7 @@ protected:
 	virtual void	cycle();
 	virtual int	measure();
 	virtual int	collect();
+    virtual float get_default_scale();
 
 	// correct for 5V rail voltage
 	void voltage_correction(float &diff_pres_pa, float &temperature);
@@ -173,91 +178,104 @@ MEASAirspeed::collect()
 		return ret;
 	}
 
-	uint8_t status = (val[0] & 0xC0) >> 6;
+    if (_process_data) {
+        
+        uint8_t status = (val[0] & 0xC0) >> 6;
 
-	switch (status) {
-	case 0:
-		break;
+        switch (status) {
+        case 0:
+            break;
 
-	case 1:
-		/* fallthrough */
-	case 2:
-		/* fallthrough */
-	case 3:
-		perf_count(_comms_errors);
-		perf_end(_sample_perf);
-		return -EAGAIN;
-	}
+        case 1:
+            /* fallthrough */
+        case 2:
+            /* fallthrough */
+        case 3:
+            perf_count(_comms_errors);
+            perf_end(_sample_perf);
+            return -EAGAIN;
+        }
+        int16_t dp_raw = 0, dT_raw = 0;
+        dp_raw = (val[0] << 8) + val[1];
+    //    printf("pressure_raw = %d\n",dp_raw);
+        /* mask the used bits */
+        dp_raw = 0x3FFF & dp_raw;
+        dT_raw = (val[2] << 8) + val[3];
+        dT_raw = (0xFFE0 & dT_raw) >> 5;
+        float temperature = ((200.0f * dT_raw) / 2047) - 50;
 
-	int16_t dp_raw = 0, dT_raw = 0;
-	dp_raw = (val[0] << 8) + val[1];
-	/* mask the used bits */
-	dp_raw = 0x3FFF & dp_raw;
-	dT_raw = (val[2] << 8) + val[3];
-	dT_raw = (0xFFE0 & dT_raw) >> 5;
-	float temperature = ((200.0f * dT_raw) / 2047) - 50;
+        /*This equation should work for all the MEAS and Honeywell sensors. It's just taken
+          from the datasheets for those, but written in a form that makes it easier to separate
+          the slope (_diff_press_scale) from the offset (16383/2) so that these can be adjusted 
+          through software settings.
+        
+          We negate the result so that positive differential pressures
+          are generated when the bottom port is used as the static
+          port on the pitot and top port is used as the dynamic port
+         */
+        float diff_press_pa_raw = -(dp_raw - 16383.0f/2) *_diff_pres_scale;
 
-	// Calculate differential pressure. As its centered around 8000
-	// and can go positive or negative
-	const float P_min = -1.0f;
-	const float P_max = 1.0f;
-	const float PSI_to_Pa = 6894.757f;
-	/*
-	  this equation is an inversion of the equation in the
-	  pressure transfer function figure on page 4 of the datasheet
+        // correct for 5V rail voltage if possible
+        voltage_correction(diff_press_pa_raw, temperature);
 
-	  We negate the result so that positive differential pressures
-	  are generated when the bottom port is used as the static
-	  port on the pitot and top port is used as the dynamic port
-	 */
-	float diff_press_PSI = -((dp_raw - 0.1f*16383) * (P_max-P_min)/(0.8f*16383) + P_min);
-	float diff_press_pa_raw = diff_press_PSI * PSI_to_Pa;
+        float diff_press_pa = fabsf(diff_press_pa_raw - _diff_pres_offset);
+        
+        /*
+          note that we return both the absolute value with offset
+          applied and a raw value without the offset applied. This
+          makes it possible for higher level code to detect if the
+          user has the tubes connected backwards, and also makes it
+          possible to correctly use offsets calculated by a higher
+          level airspeed driver.
 
-    // correct for 5V rail voltage if possible
-    voltage_correction(diff_press_pa_raw, temperature);
+          With the above calculation the MS4525 sensor will produce a
+          positive number when the top port is used as a dynamic port
+          and bottom port is used as the static port
 
-	float diff_press_pa = fabsf(diff_press_pa_raw - _diff_pres_offset);
-	
-	/*
-	  note that we return both the absolute value with offset
-	  applied and a raw value without the offset applied. This
-	  makes it possible for higher level code to detect if the
-	  user has the tubes connected backwards, and also makes it
-	  possible to correctly use offsets calculated by a higher
-	  level airspeed driver.
+          Also note that the _diff_pres_offset is applied before the
+          fabsf() not afterwards. It needs to be done this way to
+          prevent a bias at low speeds, but this also means that when
+          setting a offset you must set it based on the raw value, not
+          the offset value
+         */
+        
+        struct differential_pressure_s report;
 
-	  With the above calculation the MS4525 sensor will produce a
-	  positive number when the top port is used as a dynamic port
-	  and bottom port is used as the static port
+        /* track maximum differential pressure measured (so we can work out top speed). */
+        if (diff_press_pa > _max_differential_pressure_pa) {
+            _max_differential_pressure_pa = diff_press_pa;
+        }
 
-	  Also note that the _diff_pres_offset is applied before the
-	  fabsf() not afterwards. It needs to be done this way to
-	  prevent a bias at low speeds, but this also means that when
-	  setting a offset you must set it based on the raw value, not
-	  the offset value
-	 */
-	
-	struct differential_pressure_s report;
+        report.timestamp = hrt_absolute_time();
+        report.error_count = perf_event_count(_comms_errors);
+        report.temperature = temperature;
+        report.differential_pressure_pa = diff_press_pa;
+        report.differential_pressure_raw_pa = diff_press_pa_raw;
+        report.voltage = 0;
+        report.max_differential_pressure_pa = _max_differential_pressure_pa;
 
-	/* track maximum differential pressure measured (so we can work out top speed). */
-	if (diff_press_pa > _max_differential_pressure_pa) {
-		_max_differential_pressure_pa = diff_press_pa;
-	}
+     //   printf("differential_pressure = %d\n",diff_press_pa_raw);
+        
+        if (_airspeed_processed_pub > 0 && !(_pub_blocked)) {
+            /* publish it */
+            orb_publish(ORB_ID(differential_pressure), _airspeed_processed_pub, &report);
+        }
 
-	report.timestamp = hrt_absolute_time();
-	report.error_count = perf_event_count(_comms_errors);
-	report.temperature = temperature;
-	report.differential_pressure_pa = diff_press_pa;
-	report.differential_pressure_raw_pa = diff_press_pa_raw;
-	report.voltage = 0;
-	report.max_differential_pressure_pa = _max_differential_pressure_pa;
-
-	if (_airspeed_pub > 0 && !(_pub_blocked)) {
-		/* publish it */
-		orb_publish(ORB_ID(differential_pressure), _airspeed_pub, &report);
-	}
-
-	new_report(report);
+        new_report_processed(report);
+    } else {
+        struct differential_pressure_raw_data_s report;
+        report.timestamp = hrt_absolute_time();
+        report.data[0] = val[0];
+        report.data[1] = val[1];
+        report.data[2] = val[2];
+        report.data[3] = val[3];
+        if (_airspeed_raw_pub > 0 && !(_pub_blocked)) {
+            orb_publish(ORB_ID(differential_pressure_raw_data), _airspeed_raw_pub, &report);
+        }
+        
+        new_report_raw(report);
+    }
+        
 
 	/* notify anyone waiting for data */
 	poll_notify(POLLIN);
@@ -371,6 +389,10 @@ MEASAirspeed::voltage_correction(float &diff_press_pa, float &temperature)
 	}
 	temperature -= voltage_diff * temp_slope;	
 #endif // CONFIG_ARCH_BOARD_PX4FMU_V2
+}
+
+float MEASAirspeed::get_default_scale() {
+    return DIFF_PRES_SCALE_MEAS;
 }
 
 /**

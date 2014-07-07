@@ -72,20 +72,25 @@
 
 #include <uORB/uORB.h>
 #include <uORB/topics/differential_pressure.h>
+#include <uORB/topics/differential_pressure_raw_data.h>
 #include <uORB/topics/subsystem_info.h>
 
 #include <drivers/airspeed/airspeed.h>
 
 Airspeed::Airspeed(int bus, int address, unsigned conversion_interval, const char* path) :
 	I2C("Airspeed", path, bus, address, 100000),
-	_reports(nullptr),
+    _reports_processed(nullptr),
+	_reports_raw(nullptr),
 	_buffer_overflows(perf_alloc(PC_COUNT, "airspeed_buffer_overflows")),
 	_max_differential_pressure_pa(0),
 	_sensor_ok(false),
 	_measure_ticks(0),
 	_collect_phase(false),
 	_diff_pres_offset(0.0f),
-	_airspeed_pub(-1),
+    _diff_pres_scale(0.0f),
+    _process_data(true),
+    _airspeed_processed_pub(-1),
+    _airspeed_raw_pub(-1),
 	_class_instance(-1),
 	_conversion_interval(conversion_interval),
 	_sample_perf(perf_alloc(PC_ELAPSED, "airspeed_read")),
@@ -103,12 +108,17 @@ Airspeed::~Airspeed()
 	/* make sure we are truly inactive */
 	stop();
 
-	if (_class_instance != -1)
+	if (_class_instance != -1) {
 		unregister_class_devname(AIRSPEED_DEVICE_PATH, _class_instance);
+    }
 
 	/* free any existing reports */
-	if (_reports != nullptr)
-		delete _reports;
+	if (_reports_raw != nullptr) {
+		delete _reports_raw;
+    }
+    if (_reports_processed != nullptr) {
+        delete _reports_processed;
+    }
 
 	// free perf counters
 	perf_free(_sample_perf);
@@ -116,44 +126,105 @@ Airspeed::~Airspeed()
 	perf_free(_buffer_overflows);
 }
 
-int
-Airspeed::init()
-{
-	int ret = ERROR;
-
-	/* do I2C init (and probe) first */
-	if (I2C::init() != OK)
-		goto out;
-
-	/* allocate basic report buffers */
-	_reports = new RingBuffer(2, sizeof(differential_pressure_s));
-	if (_reports == nullptr)
-		goto out;
-
-	/* register alternate interfaces if we have to */
-	_class_instance = register_class_devname(AIRSPEED_DEVICE_PATH);
-
-	/* publication init */
-	if (_class_instance == CLASS_DEVICE_PRIMARY) {
-
-		/* advertise sensor topic, measure manually to initialize valid report */
-		struct differential_pressure_s arp;
-		measure();
-		_reports->get(&arp);
-
-		/* measurement will have generated a report, publish */
-		_airspeed_pub = orb_advertise(ORB_ID(differential_pressure), &arp);
-
-		if (_airspeed_pub < 0)
-			warnx("failed to create airspeed sensor object. uORB started?");
-	}
-
-	ret = OK;
+int Airspeed::init() {
+	
+    /* do I2C init (and probe) first */
+	if (I2C::init() != OK) {
+		return ERROR;
+    }
+    
+    _diff_pres_scale = get_default_scale();
+    int ret = OK;
+    if (_process_data) {
+    printf("Init running\n");
+        ret = init_processed();
+    printf("Init complete\n");
+    } else {
+        ret = init_raw();
+    }
 	/* sensor is ok, but we don't really know if it is within range */
 	_sensor_ok = true;
-out:
+
 	return ret;
 }
+
+int Airspeed::init_processed() {
+    int ret = ERROR;
+    _reports_processed = new RingBuffer(2, sizeof(differential_pressure_s));
+    if (_reports_processed == nullptr) {
+       goto out;
+    }
+    _class_instance = register_class_devname(AIRSPEED_DEVICE_PATH);
+    // Never getting to here. register_class_devname not working.
+    
+    /* publication init */
+    if (_class_instance == CLASS_DEVICE_PRIMARY) {
+        /* advertise sensor topic, measure manually to initialize valid report */
+        struct differential_pressure_s arp;
+        measure();
+        _reports_processed->get(&arp);
+        /* measurement will have generated a report, publish */
+        _airspeed_processed_pub = orb_advertise(ORB_ID(differential_pressure), &arp);
+
+        if (_airspeed_processed_pub < 0) {
+            warnx("failed to create airspeed sensor object. uORB started?");
+        }
+    }
+    printf("Done\n");
+    ret = OK;
+out:
+    return ret;
+}
+
+int Airspeed::deinit_processed() {
+    if (_reports_processed != nullptr) {
+        delete _reports_processed;
+    }
+    if (_class_instance != -1) {
+		unregister_class_devname(AIRSPEED_DEVICE_PATH, _class_instance);
+    }
+    close((file*) _airspeed_processed_pub);
+    return OK;
+}
+
+int Airspeed::deinit_raw() {
+    if (_reports_raw != nullptr) {
+        delete _reports_raw;
+    }
+    if (_class_instance != -1) {
+		unregister_class_devname(AIRSPEED_DEVICE_PATH, _class_instance);
+    }
+    close((file*) _airspeed_raw_pub);
+    return OK;
+}
+
+int Airspeed::init_raw() {
+    int ret = ERROR;
+    _reports_raw = new RingBuffer(2, sizeof(differential_pressure_raw_data_s));
+    if (_reports_raw == nullptr) {
+       goto out;
+    }
+    _class_instance = register_class_devname(AIRSPEED_DEVICE_PATH);
+    /* publication init */
+    if (_class_instance == CLASS_DEVICE_PRIMARY) {
+
+        /* advertise sensor topic, measure manually to initialize valid report */
+        struct differential_pressure_raw_data_s arp;
+        measure();
+        _reports_processed->get(&arp);
+
+        /* measurement will have generated a report, publish */
+        _airspeed_raw_pub = orb_advertise(ORB_ID(differential_pressure_raw_data), &arp);
+
+        if (_airspeed_raw_pub < 0) {
+            warnx("failed to create airspeed raw data sensor object. uORB started?");
+        }
+    }
+    ret = OK;
+out:
+    return ret;
+}
+
 
 int
 Airspeed::probe()
@@ -230,8 +301,9 @@ Airspeed::ioctl(struct file *filp, int cmd, unsigned long arg)
 		}
 
 	case SENSORIOCGPOLLRATE:
-		if (_measure_ticks == 0)
+		if (_measure_ticks == 0) {
 			return SENSOR_POLLRATE_MANUAL;
+        }
 
 		return (1000 / _measure_ticks);
 
@@ -241,17 +313,28 @@ Airspeed::ioctl(struct file *filp, int cmd, unsigned long arg)
 				return -EINVAL;
 
 			irqstate_t flags = irqsave();
-			if (!_reports->resize(arg)) {
-				irqrestore(flags);
-				return -ENOMEM;
-			}
+            if (_process_data) {
+                if (!_reports_processed->resize(arg)) {
+                    irqrestore(flags);
+                    return -ENOMEM;
+                }
+            } else {
+                if (!_reports_raw->resize(arg)) {
+                    irqrestore(flags);
+                    return -ENOMEM;
+                }
+            }
 			irqrestore(flags);
 
 			return OK;
 		}
 
 	case SENSORIOCGQUEUEDEPTH:
-		return _reports->size();
+        if (_process_data) {
+            return _reports_processed->size();
+        } else {
+            return _reports_raw->size();
+        }
 
 	case SENSORIOCRESET:
 		/* XXX implement this */
@@ -260,87 +343,186 @@ Airspeed::ioctl(struct file *filp, int cmd, unsigned long arg)
 	case AIRSPEEDIOCSSCALE: {
 		struct airspeed_scale *s = (struct airspeed_scale*)arg;
 		_diff_pres_offset = s->offset_pa;
+        if (s->scale != 0) {
+            _diff_pres_scale  = s->scale;
+        } else {
+            _diff_pres_scale = get_default_scale();
+        }
+        // We don't flush the raw reports because they're still valid.
+        if (_reports_processed != nullptr) {
+            _reports_processed->flush();
+        }
 		return OK;
 		}
 
 	case AIRSPEEDIOCGSCALE: {
 		struct airspeed_scale *s = (struct airspeed_scale*)arg;
 		s->offset_pa = _diff_pres_offset;
-		s->scale = 1.0f;
+		s->scale = _diff_pres_scale;
 		return OK;
 		}
 
+    case AIRSPEEDIOCSPROCDATA: {
+        int retval = OK;
+        if (!_process_data && (arg & AIRSPEED_PROCESS_DATA)) {
+            if (init_processed() == ERROR) {
+                retval = ERROR;
+            } else {
+                // Initialisation complete.
+                _process_data = true;
+                deinit_raw(); 
+            }
+        } else if (_process_data && (!(arg & AIRSPEED_PROCESS_DATA))) {
+            if (init_raw() == ERROR) {
+                retval = ERROR;
+            } else {
+                _process_data = false;
+                deinit_processed();
+            }
+        }
+        return retval;
+        }
+        
 	default:
 		/* give it to the superclass */
 		return I2C::ioctl(filp, cmd, arg);
 	}
 }
-
 ssize_t
 Airspeed::read(struct file *filp, char *buffer, size_t buflen)
 {
-	unsigned count = buflen / sizeof(differential_pressure_s);
-	differential_pressure_s *abuf = reinterpret_cast<differential_pressure_s *>(buffer);
-	int ret = 0;
-
-	/* buffer must be large enough */
-	if (count < 1)
-		return -ENOSPC;
-
-	/* if automatic measurement is enabled */
-	if (_measure_ticks > 0) {
-
-		/*
-		 * While there is space in the caller's buffer, and reports, copy them.
-		 * Note that we may be pre-empted by the workq thread while we are doing this;
-		 * we are careful to avoid racing with them.
-		 */
-		while (count--) {
-			if (_reports->get(abuf)) {
-				ret += sizeof(*abuf);
-				abuf++;
-			}
-		}
-
-		/* if there was no data, warn the caller */
-		return ret ? ret : -EAGAIN;
-	}
-
-	/* manual measurement - run one conversion */
-	do {
-		_reports->flush();
-
-		/* trigger a measurement */
-		if (OK != measure()) {
-			ret = -EIO;
-			break;
-		}
-
-		/* wait for it to complete */
-		usleep(_conversion_interval);
-
-		/* run the collection phase */
-		if (OK != collect()) {
-			ret = -EIO;
-			break;
-		}
-
-		/* state machine will have generated a report, copy it out */
-		if (_reports->get(abuf)) {
-			ret = sizeof(*abuf);
-		}
-
-	} while (0);
-
-	return ret;
+    if (_process_data) {
+        return read_processed(filp,buffer,buflen);
+    } else {
+        return read_raw(filp,buffer,buflen);
+    }
 }
+
+ssize_t Airspeed::read_processed(struct file * filp, char * buffer, size_t buflen) {
+    unsigned int count = buflen / sizeof(differential_pressure_s);
+    differential_pressure_s *abuf = reinterpret_cast<differential_pressure_s *>(buffer);
+    int ret = 0;
+
+    /* buffer must be large enough */
+    if (count < 1) {
+        return -ENOSPC;
+    }
+
+    /* if automatic measurement is enabled */
+    if (_measure_ticks > 0) {
+
+        /*
+         * While there is space in the caller's buffer, and reports, copy them.
+         * Note that we may be pre-empted by the workq thread while we are doing this;
+         * we are careful to avoid racing with them.
+         */
+        while (count--) {
+            if (_reports_processed->get(abuf)) {
+                ret += sizeof(*abuf);
+                abuf++;
+            }
+        }
+
+        /* if there was no data, warn the caller */
+        return ret ? ret : -EAGAIN;
+    }
+
+    /* manual measurement - run one conversion */
+    do {
+        _reports_processed->flush();
+
+        /* trigger a measurement */
+        if (OK != measure()) {
+            ret = -EIO;
+            break;
+        }
+
+        /* wait for it to complete */
+        usleep(_conversion_interval);
+
+        /* run the collection phase */
+        if (OK != collect()) {
+            ret = -EIO;
+            break;
+        }
+
+        /* state machine will have generated a report, copy it out */
+        if (_reports_processed->get(abuf)) {
+            ret = sizeof(*abuf);
+        }
+
+    } while (0);
+    return ret;
+}
+
+ssize_t Airspeed::read_raw(struct file * filp, char * buffer, size_t buflen) {
+    unsigned int count = buflen / sizeof(differential_pressure_raw_data_s);
+    differential_pressure_raw_data_s *abuf = reinterpret_cast<differential_pressure_raw_data_s *>(buffer);
+    int ret = 0;
+
+    /* buffer must be large enough */
+    if (count < 1) {
+        return -ENOSPC;
+    }
+
+    /* if automatic measurement is enabled */
+    if (_measure_ticks > 0) {
+
+        /*
+         * While there is space in the caller's buffer, and reports, copy them.
+         * Note that we may be pre-empted by the workq thread while we are doing this;
+         * we are careful to avoid racing with them.
+         */
+        while (count--) {
+            if (_reports_raw->get(abuf)) {
+                ret += sizeof(*abuf);
+                abuf++;
+            }
+        }
+
+        /* if there was no data, warn the caller */
+        return ret ? ret : -EAGAIN;
+    }
+
+    /* manual measurement - run one conversion */
+    do {
+        _reports_raw->flush();
+
+        /* trigger a measurement */
+        if (OK != measure()) {
+            ret = -EIO;
+            break;
+        }
+
+        /* wait for it to complete */
+        usleep(_conversion_interval);
+
+        /* run the collection phase */
+        if (OK != collect()) {
+            ret = -EIO;
+            break;
+        }
+
+        /* state machine will have generated a report, copy it out */
+        if (_reports_raw->get(abuf)) {
+            ret = sizeof(*abuf);
+        }
+
+    } while (0);
+    return ret;
+}
+
 
 void
 Airspeed::start()
 {
 	/* reset the report ring and state machine */
 	_collect_phase = false;
-	_reports->flush();
+    if (_process_data) {
+        _reports_processed->flush();
+    } else {
+        _reports_raw->flush();
+    }
 
 	/* schedule a cycle to start things */
 	work_queue(HPWORK, &_work, (worker_t)&Airspeed::cycle_trampoline, this, 1);
@@ -356,7 +538,6 @@ Airspeed::start()
 
 	if (pub > 0) {
 		orb_publish(ORB_ID(subsystem_info), pub, &info);
-
 	} else {
 		pub = orb_advertise(ORB_ID(subsystem_info), &info);
 	}
@@ -383,12 +564,23 @@ Airspeed::print_info()
 	perf_print_counter(_comms_errors);
 	perf_print_counter(_buffer_overflows);
 	warnx("poll interval:  %u ticks", _measure_ticks);
-	_reports->print_info("report queue");
+    if (_process_data) {
+        _reports_processed->print_info("report queue");
+    } else {
+        _reports_raw->print_info("report queue");
+    }
 }
 
 void
-Airspeed::new_report(const differential_pressure_s &report)
+Airspeed::new_report_processed(const differential_pressure_s &report)
 {
-	if (!_reports->force(&report))
+	if (!_reports_processed->force(&report))
+		perf_count(_buffer_overflows);
+}
+
+void
+Airspeed::new_report_raw(const differential_pressure_raw_data_s &report)
+{
+	if (!_reports_raw->force(&report))
 		perf_count(_buffer_overflows);
 }

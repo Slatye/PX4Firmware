@@ -72,6 +72,7 @@
 
 #include <uORB/uORB.h>
 #include <uORB/topics/differential_pressure.h>
+#include <uORB/topics/differential_pressure_raw_data.h>
 #include <uORB/topics/subsystem_info.h>
 
 /* Default I2C bus */
@@ -104,7 +105,8 @@ public:
 	virtual void	print_info();
 
 private:
-	RingBuffer		*_reports;
+	RingBuffer		*_reports_processed;
+    RingBuffer      *_reports_raw;
 	perf_counter_t		_buffer_overflows;
 
 protected:
@@ -117,15 +119,26 @@ protected:
 	virtual void	cycle() = 0;
 	virtual int	measure() = 0;
 	virtual int	collect() = 0;
+    virtual float get_default_scale() = 0;
+    int init_processed();
+    int init_raw();
+    int deinit_raw();
+    int deinit_processed();
+
+    ssize_t read_processed(struct file * filp, char * buffer, size_t buflen);
+    ssize_t read_raw(struct file * filp, char * buffer, size_t buflen);
 
 	work_s			_work;
 	float			_max_differential_pressure_pa;
 	bool			_sensor_ok;
-	int			_measure_ticks;
+	int			    _measure_ticks;
 	bool			_collect_phase;
 	float			_diff_pres_offset;
+    float           _diff_pres_scale; 
+    bool            _process_data;
 
-	orb_advert_t		_airspeed_pub;
+	orb_advert_t		_airspeed_processed_pub;
+    orb_advert_t        _airspeed_raw_pub;
 
 	int			_class_instance;
 
@@ -171,6 +184,10 @@ protected:
 	* @param report		differential_pressure_s report
 	*/
 	void	new_report(const differential_pressure_s &report);
+    
+    void new_report_processed(const differential_pressure_s &report);
+    
+    void new_report_raw(const differential_pressure_raw_data_s &report);
 };
 
 
