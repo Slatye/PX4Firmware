@@ -188,12 +188,12 @@ ETSAirspeed::collect()
 	report.voltage = 0;
 	report.max_differential_pressure_pa = _max_differential_pressure_pa;
 
-	if (_airspeed_pub > 0 && !(_pub_blocked)) {
+	if (_airspeed_processed_pub > 0 && !(_pub_blocked)) {
 		/* publish it */
-		orb_publish(ORB_ID(differential_pressure), _airspeed_pub, &report);
+		orb_publish(ORB_ID(differential_pressure), _airspeed_processed_pub, &report);
 	}
 
-	new_report(report);
+	new_report_processed(report);
 
 	/* notify anyone waiting for data */
 	poll_notify(POLLIN);
