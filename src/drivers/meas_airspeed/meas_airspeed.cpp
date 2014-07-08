@@ -99,6 +99,9 @@
 /* Register address */
 #define ADDR_READ_MR			0x00	/* write to this address to start conversion */
 
+/* Standard scale for MEAS 1PSI sensor */
+#define DIFF_PRES_SCALE_MEAS ((6894.8*2)/(0.8*16383))
+
 /* Measurement rate is 100Hz */
 #define CONVERSION_INTERVAL	(1000000 / 100)	/* microseconds */
 
@@ -116,6 +119,7 @@ protected:
 	virtual void	cycle();
 	virtual int	measure();
 	virtual int	collect();
+    virtual float get_default_scale();
 
 	// correct for 5V rail voltage
 	void voltage_correction(float &diff_pres_pa, float &temperature);
@@ -188,30 +192,24 @@ MEASAirspeed::collect()
 		perf_end(_sample_perf);
 		return -EAGAIN;
 	}
+        int16_t dp_raw = 0, dT_raw = 0;
+        dp_raw = (val[0] << 8) + val[1];
+        /* mask the used bits */
+        dp_raw = 0x3FFF & dp_raw;
+        dT_raw = (val[2] << 8) + val[3];
+        dT_raw = (0xFFE0 & dT_raw) >> 5;
+        float temperature = ((200.0f * dT_raw) / 2047) - 50;
 
-	int16_t dp_raw = 0, dT_raw = 0;
-	dp_raw = (val[0] << 8) + val[1];
-	/* mask the used bits */
-	dp_raw = 0x3FFF & dp_raw;
-	dT_raw = (val[2] << 8) + val[3];
-	dT_raw = (0xFFE0 & dT_raw) >> 5;
-	float temperature = ((200.0f * dT_raw) / 2047) - 50;
-
-	// Calculate differential pressure. As its centered around 8000
-	// and can go positive or negative
-	const float P_min = -1.0f;
-	const float P_max = 1.0f;
-	const float PSI_to_Pa = 6894.757f;
-	/*
-	  this equation is an inversion of the equation in the
-	  pressure transfer function figure on page 4 of the datasheet
-
-	  We negate the result so that positive differential pressures
-	  are generated when the bottom port is used as the static
-	  port on the pitot and top port is used as the dynamic port
-	 */
-	float diff_press_PSI = -((dp_raw - 0.1f*16383) * (P_max-P_min)/(0.8f*16383) + P_min);
-	float diff_press_pa_raw = diff_press_PSI * PSI_to_Pa;
+        /*This equation should work for all the MEAS and Honeywell sensors. It's just taken
+          from the datasheets for those, but written in a form that makes it easier to separate
+          the slope (_diff_press_scale) from the offset (16383/2) so that these can be adjusted 
+          through software settings.
+        
+          We negate the result so that positive differential pressures
+          are generated when the bottom port is used as the static
+          port on the pitot and top port is used as the dynamic port
+         */
+        float diff_press_pa_raw = -(dp_raw - 16383.0f/2) *_diff_pres_scale;
 
         // correct for 5V rail voltage if possible
         voltage_correction(diff_press_pa_raw, temperature);
@@ -371,6 +369,10 @@ MEASAirspeed::voltage_correction(float &diff_press_pa, float &temperature)
 	}
 	temperature -= voltage_diff * temp_slope;	
 #endif // CONFIG_ARCH_BOARD_PX4FMU_V2
+}
+
+float MEASAirspeed::get_default_scale() {
+    return DIFF_PRES_SCALE_MEAS;
 }
 
 /**
