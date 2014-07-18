@@ -119,7 +119,7 @@ protected:
 	virtual void	cycle();
 	virtual int	measure();
 	virtual int	collect();
-    virtual float get_default_scale();
+	virtual float get_default_scale();
 
 	// correct for 5V rail voltage
 	void voltage_correction(float &diff_pres_pa, float &temperature);
@@ -134,8 +134,8 @@ protected:
 extern "C" __EXPORT int meas_airspeed_main(int argc, char *argv[]);
 
 MEASAirspeed::MEASAirspeed(int bus, int address, const char *path) : Airspeed(bus, address,
-                                                                              CONVERSION_INTERVAL, path),
-                                                                     _t_system_power(-1)
+	CONVERSION_INTERVAL, path),
+	_t_system_power(-1)
 {
 	memset(&system_power, 0, sizeof(system_power));
 }
@@ -192,30 +192,32 @@ MEASAirspeed::collect()
 		perf_end(_sample_perf);
 		return -EAGAIN;
 	}
-        int16_t dp_raw = 0, dT_raw = 0;
-        dp_raw = (val[0] << 8) + val[1];
-        /* mask the used bits */
-        dp_raw = 0x3FFF & dp_raw;
-        dT_raw = (val[2] << 8) + val[3];
-        dT_raw = (0xFFE0 & dT_raw) >> 5;
-        float temperature = ((200.0f * dT_raw) / 2047) - 50;
 
-        /*This equation should work for all the MEAS and Honeywell sensors. It's just taken
-          from the datasheets for those, but written in a form that makes it easier to separate
-          the slope (_diff_press_scale) from the offset (16383/2) so that these can be adjusted 
-          through software settings.
-        
-          We negate the result so that positive differential pressures
-          are generated when the bottom port is used as the static
-          port on the pitot and top port is used as the dynamic port
-         */
-        float diff_press_pa_raw = -(dp_raw - 16383.0f/2) *_diff_pres_scale;
+	int16_t dp_raw = 0, dT_raw = 0;
+	dp_raw = (val[0] << 8) + val[1];
+	/* mask the used bits */
+	dp_raw = 0x3FFF & dp_raw;
+	dT_raw = (val[2] << 8) + val[3];
+	dT_raw = (0xFFE0 & dT_raw) >> 5;
+	float temperature = ((200.0f * dT_raw) / 2047) - 50;
 
-        // correct for 5V rail voltage if possible
-        voltage_correction(diff_press_pa_raw, temperature);
+	/*
+	  This equation should work for all the MEAS and Honeywell sensors. It's just taken
+	  from the datasheets for those, but written in a form that makes it easier to separate
+	  the slope (_diff_press_scale) from the offset (16383/2) so that these can be adjusted 
+	  through software settings.
+
+	  We negate the result so that positive differential pressures
+	  are generated when the bottom port is used as the static
+	  port on the pitot and top port is used as the dynamic port
+	 */
+	float diff_press_pa_raw = -(dp_raw - 16383.0f/2) *_diff_pres_scale;
+
+	// correct for 5V rail voltage if possible
+	voltage_correction(diff_press_pa_raw, temperature);
 
 	float diff_press_pa = fabsf(diff_press_pa_raw - _diff_pres_offset);
-	
+
 	/*
 	  note that we return both the absolute value with offset
 	  applied and a raw value without the offset applied. This
@@ -371,8 +373,9 @@ MEASAirspeed::voltage_correction(float &diff_press_pa, float &temperature)
 #endif // CONFIG_ARCH_BOARD_PX4FMU_V2
 }
 
-float MEASAirspeed::get_default_scale() {
-    return DIFF_PRES_SCALE_MEAS;
+float MEASAirspeed::get_default_scale()
+{
+	return DIFF_PRES_SCALE_MEAS;
 }
 
 /**

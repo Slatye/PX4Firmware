@@ -107,7 +107,7 @@ protected:
 	virtual void	cycle();
 	virtual int	measure();
 	virtual int	collect();
-    virtual float get_default_scale();
+	virtual float get_default_scale();
 
 };
 
@@ -158,15 +158,15 @@ ETSAirspeed::collect()
 	}
 
 	uint16_t diff_pres_pa = (val[1] << 8 | val[0]);
-        if (diff_pres_pa == 0) {
-		// a zero value means the pressure sensor cannot give us a
-		// value. We need to return, and not report a value or the
-		// caller could end up using this value as part of an
-		// average
+	if (diff_pres_pa == 0) {
+	// a zero value means the pressure sensor cannot give us a
+	// value. We need to return, and not report a value or the
+	// caller could end up using this value as part of an
+	// average
 		perf_count(_comms_errors);
 		log("zero value from sensor"); 
 		return -1;
-        }
+	}
 
 	if (diff_pres_pa < _diff_pres_offset + MIN_ACCURATE_DIFF_PRES_PA) {
 		diff_pres_pa = 0;
@@ -174,7 +174,7 @@ ETSAirspeed::collect()
 		diff_pres_pa -= _diff_pres_offset;
 	}
 
-    float    diff_pres_pa_fl = diff_pres_pa * _diff_pres_scale;
+	float diff_pres_pa_fl = diff_pres_pa * _diff_pres_scale;
 	// Track maximum differential pressure measured (so we can work out top speed).
 	if (diff_pres_pa_fl > _max_differential_pressure_pa) {
 		_max_differential_pressure_pa = diff_pres_pa_fl;
@@ -183,7 +183,7 @@ ETSAirspeed::collect()
 	// XXX we may want to smooth out the readings to remove noise.
 	differential_pressure_s report;
 	report.timestamp = hrt_absolute_time();
-        report.error_count = perf_event_count(_comms_errors);
+	report.error_count = perf_event_count(_comms_errors);
 	report.differential_pressure_pa = diff_pres_pa_fl;
 	report.voltage = 0;
 	report.max_differential_pressure_pa = _max_differential_pressure_pa;
