@@ -105,7 +105,7 @@ Airspeed::~Airspeed()
 
 	if (_class_instance != -1) {
 		unregister_class_devname(AIRSPEED_DEVICE_PATH, _class_instance);
-    }
+	}
 
 	/* free any existing reports */
 	if (_reports != nullptr) {
@@ -236,7 +236,7 @@ Airspeed::ioctl(struct file *filp, int cmd, unsigned long arg)
 	case SENSORIOCGPOLLRATE:
 		if (_measure_ticks == 0) {
 			return SENSOR_POLLRATE_MANUAL;
-        }
+		}
 
 		return (1000 / _measure_ticks);
 
@@ -263,26 +263,21 @@ Airspeed::ioctl(struct file *filp, int cmd, unsigned long arg)
 		return -EINVAL;
 
 	case AIRSPEEDIOCSSCALE: {
-		struct airspeed_scale *s = (struct airspeed_scale*)arg;
-		_diff_pres_offset = s->offset_pa;
-		// Scaling of 0 makes no sense so we use that as a special value to load the default setting.
-        if (s->scale != 0.0f) {
-            _diff_pres_scale  = s->scale;
-        } else {
-            _diff_pres_scale = get_default_scale();
-        }
-        // Flush reports, as the buffered ones were done at the wrong scale.
-        if (_reports != nullptr) {
-            _reports->flush();
-        }
-		return OK;
+			struct airspeed_scale *s = (struct airspeed_scale*)arg;
+			_diff_pres_offset = s->offset_pa;
+			_diff_pres_scale  = s->scale;
+			// Flush reports, as the buffered ones were done at the wrong scale.
+			if (_reports != nullptr) {
+				_reports->flush();
+			}
+			return OK;
 		}
 
 	case AIRSPEEDIOCGSCALE: {
-		struct airspeed_scale *s = (struct airspeed_scale*)arg;
-		s->offset_pa = _diff_pres_offset;
-		s->scale = _diff_pres_scale;
-		return OK;
+			struct airspeed_scale *s = (struct airspeed_scale*)arg;
+			s->offset_pa = _diff_pres_offset;
+			s->scale = _diff_pres_scale;
+			return OK;
 		}
 
 	default:
