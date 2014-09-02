@@ -267,6 +267,8 @@ Airspeed::ioctl(struct file *filp, int cmd, unsigned long arg)
 		struct airspeed_scale *s = (struct airspeed_scale*)arg;
 		_diff_pres_offset = s->offset_pa;
 		_diff_pres_scale = s->scale;
+		/* flush reports as they were calculated with the wrong scale/offset */
+		_reports->flush();
 		return OK;
 		}
 

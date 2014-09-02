@@ -173,7 +173,10 @@ ETSAirspeed::collect()
 		return -1;
         }
 	
-	float diff_pres_pa = diff_pres_pa_raw * _diff_pres_scale;
+	
+	// the ETS sensor outputs Pa directly, so scaling is never applied
+	// to its output. 
+	float diff_pres_pa = (float) diff_pres_pa_raw;
 
 	if (diff_pres_pa < _diff_pres_offset + MIN_ACCURATE_DIFF_PRES_PA) {
 		diff_pres_pa = 0;
