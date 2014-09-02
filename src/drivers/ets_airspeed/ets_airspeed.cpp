@@ -88,6 +88,8 @@
  */
 #define MIN_ACCURATE_DIFF_PRES_PA 0
 
+#define DIFF_PRES_SCALE_ETS 1 /* Default pressure scaling */
+
 /* Measurement rate is 100Hz */
 #define CONVERSION_INTERVAL	(1000000 / 100)	/* microseconds */
 
@@ -105,6 +107,11 @@ protected:
 	virtual void	cycle();
 	virtual int	measure();
 	virtual int	collect();
+
+	/**
+	* Get the default scaling for this sensor
+	*/
+	virtual float	get_default_scale();
 
 };
 
@@ -155,6 +162,7 @@ ETSAirspeed::collect()
 	}
 
 	uint16_t diff_pres_pa_raw = val[1] << 8 | val[0];
+	
         if (diff_pres_pa_raw == 0) {
 		// a zero value means the pressure sensor cannot give us a
 		// value. We need to return, and not report a value or the
@@ -164,9 +172,14 @@ ETSAirspeed::collect()
 		log("zero value from sensor"); 
 		return -1;
         }
+	
+	float diff_pres_pa = diff_pres_pa_raw * _diff_pres_scale;
 
-	// The raw value still should be compensated for the known offset
-	diff_pres_pa_raw -= _diff_pres_offset;
+	if (diff_pres_pa < _diff_pres_offset + MIN_ACCURATE_DIFF_PRES_PA) {
+		diff_pres_pa = 0;
+	} else {
+		diff_pres_pa -= _diff_pres_offset;
+	}
 
 	// Track maximum differential pressure measured (so we can work out top speed).
 	if (diff_pres_pa_raw > _max_differential_pressure_pa) {
@@ -178,7 +191,7 @@ ETSAirspeed::collect()
         report.error_count = perf_event_count(_comms_errors);
 
 	// XXX we may want to smooth out the readings to remove noise.
-	report.differential_pressure_filtered_pa = diff_pres_pa_raw;
+	report.differential_pressure_filtered_pa = diff_pres_pa;
 	report.differential_pressure_raw_pa = diff_pres_pa_raw;
 	report.temperature = -1000.0f;
 	report.max_differential_pressure_pa = _max_differential_pressure_pa;
@@ -254,6 +267,16 @@ ETSAirspeed::cycle()
 		   (worker_t)&Airspeed::cycle_trampoline,
 		   this,
 		   USEC2TICK(CONVERSION_INTERVAL));
+}
+
+
+/**
+* get default scale of the sensor
+*/
+float
+ETSAirspeed::get_default_scale() 
+{
+	return DIFF_PRES_SCALE_ETS;
 }
 
 /**
@@ -492,3 +515,4 @@ ets_airspeed_main(int argc, char *argv[])
 	ets_airspeed_usage();
 	exit(0);
 }
+	

@@ -115,6 +115,11 @@ protected:
 	virtual int	probe();
 
 	/**
+	* get default scale of the sensor
+	*/
+	virtual float	get_default_scale() = 0;
+
+	/**
 	* Perform a poll cycle; collect from the previous measurement
 	* and start a new one.
 	*/
@@ -134,6 +139,7 @@ protected:
 	int			_measure_ticks;
 	bool			_collect_phase;
 	float			_diff_pres_offset;
+	float			_diff_pres_scale;
 
 	orb_advert_t		_airspeed_pub;
 	orb_advert_t		_subsys_pub;

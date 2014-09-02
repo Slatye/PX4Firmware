@@ -127,6 +127,9 @@ Airspeed::init()
 	if (I2C::init() != OK)
 		goto out;
 
+	/* set the sensor scaling to default for whichever sensor is used */
+	_diff_pres_scale = get_default_scale();
+	
 	/* allocate basic report buffers */
 	_reports = new RingBuffer(2, sizeof(differential_pressure_s));
 	if (_reports == nullptr)
@@ -263,13 +266,14 @@ Airspeed::ioctl(struct file *filp, int cmd, unsigned long arg)
 	case AIRSPEEDIOCSSCALE: {
 		struct airspeed_scale *s = (struct airspeed_scale*)arg;
 		_diff_pres_offset = s->offset_pa;
+		_diff_pres_scale = s->scale;
 		return OK;
 		}
 
 	case AIRSPEEDIOCGSCALE: {
 		struct airspeed_scale *s = (struct airspeed_scale*)arg;
 		s->offset_pa = _diff_pres_offset;
-		s->scale = 1.0f;
+		s->scale = _diff_pres_scale;
 		return OK;
 		}
 

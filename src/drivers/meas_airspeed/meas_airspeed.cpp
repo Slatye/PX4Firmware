@@ -98,6 +98,9 @@
 #define I2C_ADDRESS_MS5525DSO	0x77	//0x77/* 7-bit address, addr. pin pulled low */
 #define PATH_MS5525		"/dev/ms5525"
 
+/* Standard scale for MEAS 1PSI sensor */
+#define DIFF_PRES_SCALE_MEAS ((6894.8*2)/(0.8*16383))
+
 /* Register address */
 #define ADDR_READ_MR			0x00	/* write to this address to start conversion */
 
@@ -120,6 +123,11 @@ protected:
 	virtual void	cycle();
 	virtual int	measure();
 	virtual int	collect();
+
+	/**
+	* Get the default scaling for this sensor
+	*/
+	virtual float	get_default_scale();
 
 	math::LowPassFilter2p	_filter;
 
@@ -205,25 +213,20 @@ MEASAirspeed::collect()
 	dT_raw = (val[2] << 8) + val[3];
 	dT_raw = (0xFFE0 & dT_raw) >> 5;
 	float temperature = ((200.0f * dT_raw) / 2047) - 50;
-
-	// Calculate differential pressure. As its centered around 8000
-	// and can go positive or negative
-	const float P_min = -1.0f;
-	const float P_max = 1.0f;
-	const float PSI_to_Pa = 6894.757f;
+	
 	/*
-	  this equation is an inversion of the equation in the
-	  pressure transfer function figure on page 4 of the datasheet
+	  This is taken from the MEAS and Honeywell sensor datasheets,
+	  rewritten in a form that separates slope (_diff_pres_scale)
+	  from offset (16383/2).
 
 	  We negate the result so that positive differential pressures
 	  are generated when the bottom port is used as the static
 	  port on the pitot and top port is used as the dynamic port
 	 */
-	float diff_press_PSI = -((dp_raw - 0.1f*16383) * (P_max-P_min)/(0.8f*16383) + P_min);
-	float diff_press_pa_raw = diff_press_PSI * PSI_to_Pa;
+	float diff_press_pa_raw = -(dp_raw - 16383.0f/2) * _diff_pres_scale;
 
-        // correct for 5V rail voltage if possible
-        voltage_correction(diff_press_pa_raw, temperature);
+	// correct for 5V rail voltage if possible
+	voltage_correction(diff_press_pa_raw, temperature);
 
 	// the raw value still should be compensated for the known offset
 	diff_press_pa_raw -= _diff_pres_offset;
@@ -375,6 +378,12 @@ MEASAirspeed::voltage_correction(float &diff_press_pa, float &temperature)
 	}
 	temperature -= voltage_diff * temp_slope;
 #endif // CONFIG_ARCH_BOARD_PX4FMU_V2
+}
+
+float
+MEASAirspeed::get_default_scale()
+{
+	return DIFF_PRES_SCALE_MEAS;
 }
 
 /**
