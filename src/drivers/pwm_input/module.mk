@@ -32,7 +32,7 @@
 ############################################################################
 
 #
-# Makefile to build the BMA180 driver.
+# Makefile to build the PWM input driver.
 #
 
 MODULE_COMMAND	= pwm_input

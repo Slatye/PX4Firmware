@@ -154,35 +154,34 @@
 #endif
 
 /*
- * Maximum period for PWM input. 
+ * Maximum period for PWM input.
  * 5ms is valid for the US Digital MA3 encoders.
  */
 #define PWMIN_MAX_PERIOD_SECONDS 	0.005
-
 
 /*
  * Timer register accessors
  */
 #define REG(_reg)	(*(volatile uint32_t *)(PWMIN_TIMER_BASE + _reg))
 
-#define rCR1     	REG(STM32_GTIM_CR1_OFFSET)
-#define rCR2     	REG(STM32_GTIM_CR2_OFFSET)
-#define rSMCR    	REG(STM32_GTIM_SMCR_OFFSET)
-#define rDIER    	REG(STM32_GTIM_DIER_OFFSET)
-#define rSR      	REG(STM32_GTIM_SR_OFFSET)
-#define rEGR     	REG(STM32_GTIM_EGR_OFFSET)
-#define rCCMR1   	REG(STM32_GTIM_CCMR1_OFFSET)
-#define rCCMR2   	REG(STM32_GTIM_CCMR2_OFFSET)
-#define rCCER    	REG(STM32_GTIM_CCER_OFFSET)
-#define rCNT     	REG(STM32_GTIM_CNT_OFFSET)
-#define rPSC     	REG(STM32_GTIM_PSC_OFFSET)
-#define rARR     	REG(STM32_GTIM_ARR_OFFSET)
-#define rCCR1    	REG(STM32_GTIM_CCR1_OFFSET)
-#define rCCR2    	REG(STM32_GTIM_CCR2_OFFSET)
-#define rCCR3    	REG(STM32_GTIM_CCR3_OFFSET)
-#define rCCR4    	REG(STM32_GTIM_CCR4_OFFSET)
-#define rDCR     	REG(STM32_GTIM_DCR_OFFSET)
-#define rDMAR    	REG(STM32_GTIM_DMAR_OFFSET)
+#define rCR1		REG(STM32_GTIM_CR1_OFFSET)
+#define rCR2		REG(STM32_GTIM_CR2_OFFSET)
+#define rSMCR		REG(STM32_GTIM_SMCR_OFFSET)
+#define rDIER		REG(STM32_GTIM_DIER_OFFSET)
+#define rSR		REG(STM32_GTIM_SR_OFFSET)
+#define rEGR		REG(STM32_GTIM_EGR_OFFSET)
+#define rCCMR1		REG(STM32_GTIM_CCMR1_OFFSET)
+#define rCCMR2		REG(STM32_GTIM_CCMR2_OFFSET)
+#define rCCER		REG(STM32_GTIM_CCER_OFFSET)
+#define rCNT		REG(STM32_GTIM_CNT_OFFSET)
+#define rPSC		REG(STM32_GTIM_PSC_OFFSET)
+#define rARR		REG(STM32_GTIM_ARR_OFFSET)
+#define rCCR1		REG(STM32_GTIM_CCR1_OFFSET)
+#define rCCR2		REG(STM32_GTIM_CCR2_OFFSET)
+#define rCCR3		REG(STM32_GTIM_CCR3_OFFSET)
+#define rCCR4		REG(STM32_GTIM_CCR4_OFFSET)
+#define rDCR		REG(STM32_GTIM_DCR_OFFSET)
+#define rDMAR		REG(STM32_GTIM_DMAR_OFFSET)
 
 /*
  * Specific registers and bits used by HRT sub-functions
@@ -223,7 +222,7 @@ static int	pwmin_tim_isr(int irq, void *context);
 
 static void	pwmin_decode(uint16_t status);
 
-void 		pwmin_init(void);
+void		pwmin_init(void);
 
 /* ORB message setup */
 orb_advert_t _pwm_pub = -1;
@@ -248,7 +247,7 @@ static void pwmin_tim_init(void) {
 	rCCMR2 = CCMR2_PWMIN;
 	rSMCR = SMCR_PWMIN_1;	/* Set up mode */
 	rSMCR = SMCR_PWMIN_2;	/* Enable slave mode controller */
-	rCCER  = CCER_PWMIN;
+	rCCER = CCER_PWMIN;
 	rDCR = 0;
 
 
@@ -258,7 +257,7 @@ static void pwmin_tim_init(void) {
 	 */
 	double prescaler_fl = ceil((PWMIN_MAX_PERIOD_SECONDS * PWMIN_TIMER_CLOCK) / (PWMIN_TIMER_LIMIT + 1.0));
 	uint64_t prescaler_in = (uint64_t) (prescaler_fl);
-	
+
 	if (prescaler_in > (UINT16_MAX + 1)) {
 	/*
 	 * This is very unusual. For the prescaler to need to be 
@@ -296,10 +295,9 @@ static void pwmin_tim_init(void) {
 
 static void pwmin_decode(uint16_t status)
 {
-
 	static uint64_t error_count = 0;
 	uint32_t period = rCCR_PWMIN_A;
-	uint32_t pulse_width  = rCCR_PWMIN_B;
+	uint32_t pulse_width = rCCR_PWMIN_B;
 
 	/* if we missed an edge, we have to give up */
 	if (status & SR_OVF_PWMIN) {
@@ -339,7 +337,7 @@ static int pwmin_tim_isr(int irq, void *context)
 	return OK;
 }
 
-/**
+/*
  * Initalise the high-resolution timing module.
  */
 void pwmin_init(void)

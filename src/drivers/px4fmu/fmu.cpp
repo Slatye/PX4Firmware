@@ -1537,7 +1537,7 @@ enum PortMode {
 	PORT_FULL_GPIO,
 	PORT_FULL_SERIAL,
 	PORT_FULL_PWM,
-    PORT_SERIAL_AND_PWMIN,
+	PORT_SERIAL_AND_PWMIN,
 	PORT_GPIO_AND_SERIAL,
 	PORT_PWM_AND_SERIAL,
 	PORT_PWM_AND_GPIO,
@@ -1849,9 +1849,9 @@ fmu_main(int argc, char *argv[])
 
 	} else if (!strcmp(verb, "mode_serial")) {
 		new_mode = PORT_FULL_SERIAL;
-        
-    } else if (!strcmp(verb, "mode_serial_pwmin")) {
-        new_mode = PORT_SERIAL_AND_PWMIN;
+
+	} else if (!strcmp(verb, "mode_serial_pwmin")) {
+		new_mode = PORT_SERIAL_AND_PWMIN;
 
 	} else if (!strcmp(verb, "mode_gpio_serial")) {
 		new_mode = PORT_GPIO_AND_SERIAL;
