@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   Copyright (C) 2012 PX4 Development Team. All rights reserved.
+ *   Copyright (c) 2014 Andrew Tridgell. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,74 +32,80 @@
  ****************************************************************************/
 
 /**
- * @file mixer_load.c
+ * @file reflect.c
  *
- * Programmable multi-channel mixer library.
+ * simple data reflector for load testing terminals (especially USB)
+ *
+ * @author Andrew Tridgell
  */
 
 #include <nuttx/config.h>
-#include <string.h>
+#include <unistd.h>
 #include <stdio.h>
-#include <ctype.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <assert.h>
 #include <systemlib/err.h>
 
-#include "mixer_load.h"
+__EXPORT int reflect_main(int argc, char *argv[]);
 
-int load_mixer_file(const char *fname, char *buf, unsigned maxlen)
+// memory corruption checking
+#define MAX_BLOCKS 1000
+static uint32_t nblocks;
+struct block {
+    uint32_t v[256];
+};
+static struct block *blocks[MAX_BLOCKS];
+
+#define VALUE(i) ((i*7) ^ 0xDEADBEEF)
+
+static void allocate_blocks(void)
 {
-	FILE		*fp;
-	char		line[120];
-
-	/* open the mixer definition file */
-	fp = fopen(fname, "r");
-	if (fp == NULL) {
-		warnx("file not found");
-		return -1;
-	}
-
-	/* read valid lines from the file into a buffer */
-	buf[0] = '\0';
-	for (;;) {
-
-		/* get a line, bail on error/EOF */
-		line[0] = '\0';
-		if (fgets(line, sizeof(line), fp) == NULL)
-			break;
-
-		/* if the line doesn't look like a mixer definition line, skip it */
-		if ((strlen(line) < 2) || !isupper(line[0]) || (line[1] != ':'))
-			continue;
-
-		/* compact whitespace in the buffer */
-		char *t, *f;
-		for (f = line; *f != '\0'; f++) {
-			/* scan for space characters */
-			if (*f == ' ') {
-				/* look for additional spaces */
-				t = f + 1;
-				while (*t == ' ')
-					t++;
-				if (*t == '\0') {
-					/* strip trailing whitespace */
-					*f = '\0';
-				} else if (t > (f + 1)) {
-					memmove(f + 1, t, strlen(t) + 1);
-				}
-			}
-		}
-
-		/* if the line is too long to fit in the buffer, bail */
-		if ((strlen(line) + strlen(buf) + 1) >= maxlen) {
-			warnx("line too long");
-			fclose(fp);
-			return -1;
-		}
-
-		/* add the line to the buffer */
-		strcat(buf, line);
-	}
-
-	fclose(fp);
-	return 0;
+    while (nblocks < MAX_BLOCKS) {
+        blocks[nblocks] = calloc(1, sizeof(struct block));
+        if (blocks[nblocks] == NULL) {
+            break;
+        }
+        for (uint32_t i=0; i<sizeof(blocks[nblocks]->v)/sizeof(uint32_t); i++) {
+            blocks[nblocks]->v[i] = VALUE(i);
+        }
+        nblocks++;
+    }
+    printf("Allocated %u blocks\n", nblocks);
 }
 
+static void check_blocks(void)
+{
+    for (uint32_t n=0; n<nblocks; n++) {
+        for (uint32_t i=0; i<sizeof(blocks[nblocks]->v)/sizeof(uint32_t); i++) {
+            assert(blocks[n]->v[i] == VALUE(i));
+        }
+    }
+}
+
+int
+reflect_main(int argc, char *argv[])
+{
+    uint32_t total = 0;
+    printf("Starting reflector\n");
+
+    allocate_blocks();
+
+    while (true) {
+        char buf[128];
+        ssize_t n = read(0, buf, sizeof(buf));
+        if (n < 0) {
+            break;
+        }
+        if (n > 0) {
+            write(1, buf, n);
+        }
+        total += n;
+        if (total > 1024000) {
+            check_blocks();
+            total = 0;
+        }
+    }
+    return OK;
+}
