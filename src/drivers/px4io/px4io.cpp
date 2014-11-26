@@ -817,6 +817,11 @@ PX4IO::init()
 
 	}
 
+	/* set safety to off if circuit breaker enabled */
+	if (circuit_breaker_enabled("CBRK_IO_SAFETY", CBRK_IO_SAFETY_KEY)) {
+		(void)io_reg_set(PX4IO_PAGE_SETUP, PX4IO_P_SETUP_FORCE_SAFETY_OFF, PX4IO_FORCE_SAFETY_MAGIC);
+	}
+
 	/* try to claim the generic PWM output device node as well - it's OK if we fail at this */
 	ret = register_driver(PWM_OUTPUT_DEVICE_PATH, &fops, 0666, (void *)this);
 
@@ -1155,52 +1160,54 @@ PX4IO::io_set_arming_state()
 	actuator_armed_s	armed;		///< system armed state
 	vehicle_control_mode_s	control_mode;	///< vehicle_control_mode
 
-	orb_copy(ORB_ID(actuator_armed), _t_actuator_armed, &armed);
-	orb_copy(ORB_ID(vehicle_control_mode), _t_vehicle_control_mode, &control_mode);
+	int have_armed = orb_copy(ORB_ID(actuator_armed), _t_actuator_armed, &armed);
+	int have_control_mode = orb_copy(ORB_ID(vehicle_control_mode), _t_vehicle_control_mode, &control_mode);
 
 	uint16_t set = 0;
 	uint16_t clear = 0;
 
-	if (armed.armed) {
-		set |= PX4IO_P_SETUP_ARMING_FMU_ARMED;
+        if (have_armed == OK) {
+		if (armed.armed) {
+			set |= PX4IO_P_SETUP_ARMING_FMU_ARMED;
+		} else {
+			clear |= PX4IO_P_SETUP_ARMING_FMU_ARMED;
+		}
 
-	} else {
-		clear |= PX4IO_P_SETUP_ARMING_FMU_ARMED;
+		if (armed.lockdown && !_lockdown_override) {
+			set |= PX4IO_P_SETUP_ARMING_LOCKDOWN;
+		} else {
+			clear |= PX4IO_P_SETUP_ARMING_LOCKDOWN;
+		}
+
+		/* Do not set failsafe if circuit breaker is enabled */
+		if (armed.force_failsafe && !_cb_flighttermination) {
+			set |= PX4IO_P_SETUP_ARMING_FORCE_FAILSAFE;
+		} else {
+			clear |= PX4IO_P_SETUP_ARMING_FORCE_FAILSAFE;
+		}
+
+		// XXX this is for future support in the commander
+		// but can be removed if unneeded
+		// if (armed.termination_failsafe) {
+		// 	set |= PX4IO_P_SETUP_ARMING_TERMINATION_FAILSAFE;
+		// } else {
+		// 	clear |= PX4IO_P_SETUP_ARMING_TERMINATION_FAILSAFE;
+		// }
+
+		if (armed.ready_to_arm) {
+			set |= PX4IO_P_SETUP_ARMING_IO_ARM_OK;
+			
+		} else {
+			clear |= PX4IO_P_SETUP_ARMING_IO_ARM_OK;
+		}
 	}
 
-	if (armed.lockdown && !_lockdown_override) {
-		set |= PX4IO_P_SETUP_ARMING_LOCKDOWN;
-	} else {
-		clear |= PX4IO_P_SETUP_ARMING_LOCKDOWN;
-	}
-
-	/* Do not set failsafe if circuit breaker is enabled */
-	if (armed.force_failsafe && !_cb_flighttermination) {
-		set |= PX4IO_P_SETUP_ARMING_FORCE_FAILSAFE;
-	} else {
-		clear |= PX4IO_P_SETUP_ARMING_FORCE_FAILSAFE;
-	}
-
-	// XXX this is for future support in the commander
-	// but can be removed if unneeded
-	// if (armed.termination_failsafe) {
-	// 	set |= PX4IO_P_SETUP_ARMING_TERMINATION_FAILSAFE;
-	// } else {
-	// 	clear |= PX4IO_P_SETUP_ARMING_TERMINATION_FAILSAFE;
-	// }
-
-	if (armed.ready_to_arm) {
-		set |= PX4IO_P_SETUP_ARMING_IO_ARM_OK;
-
-	} else {
-		clear |= PX4IO_P_SETUP_ARMING_IO_ARM_OK;
-	}
-
-	if (control_mode.flag_external_manual_override_ok) {
-		set |= PX4IO_P_SETUP_ARMING_MANUAL_OVERRIDE_OK;
-
-	} else {
-		clear |= PX4IO_P_SETUP_ARMING_MANUAL_OVERRIDE_OK;
+	if (have_control_mode == OK) {
+		if (control_mode.flag_external_manual_override_ok) {
+			set |= PX4IO_P_SETUP_ARMING_MANUAL_OVERRIDE_OK;
+		} else {
+			clear |= PX4IO_P_SETUP_ARMING_MANUAL_OVERRIDE_OK;
+		}
 	}
 
 	return io_reg_modify(PX4IO_PAGE_SETUP, PX4IO_P_SETUP_ARMING, clear, set);
@@ -1245,34 +1252,40 @@ PX4IO::io_set_rc_config()
 	 *       for compatibility reasons with existing
 	 *       autopilots / GCS'.
 	 */
+
+	/* ROLL */
 	param_get(param_find("RC_MAP_ROLL"), &ichan);
-
-	if ((ichan >= 0) && (ichan < (int)_max_rc_input))
+	if ((ichan > 0) && (ichan <= (int)_max_rc_input)) {
 		input_map[ichan - 1] = 0;
+	}
 
+	/* PITCH */
 	param_get(param_find("RC_MAP_PITCH"), &ichan);
-
-	if ((ichan >= 0) && (ichan < (int)_max_rc_input))
+	if ((ichan > 0) && (ichan <= (int)_max_rc_input)) {
 		input_map[ichan - 1] = 1;
+	}
 
+	/* YAW */
 	param_get(param_find("RC_MAP_YAW"), &ichan);
-
-	if ((ichan >= 0) && (ichan < (int)_max_rc_input))
+	if ((ichan > 0) && (ichan <= (int)_max_rc_input)) {
 		input_map[ichan - 1] = 2;
+	}
 
+	/* THROTTLE */
 	param_get(param_find("RC_MAP_THROTTLE"), &ichan);
-
-	if ((ichan >= 0) && (ichan < (int)_max_rc_input))
+	if ((ichan > 0) && (ichan <= (int)_max_rc_input)) {
 		input_map[ichan - 1] = 3;
+	}
 
+	/* FLAPS */
 	param_get(param_find("RC_MAP_FLAPS"), &ichan);
-
-	if ((ichan >= 0) && (ichan < (int)_max_rc_input))
+	if ((ichan > 0) && (ichan <= (int)_max_rc_input)) {
 		input_map[ichan - 1] = 4;
+	}
 
+	/* MAIN MODE SWITCH */
 	param_get(param_find("RC_MAP_MODE_SW"), &ichan);
-
-	if ((ichan >= 0) && (ichan < (int)_max_rc_input)) {
+	if ((ichan > 0) && (ichan <= (int)_max_rc_input)) {
 		/* use out of normal bounds index to indicate special channel */
 		input_map[ichan - 1] = PX4IO_P_RC_CONFIG_ASSIGNMENT_MODESWITCH;
 	}
